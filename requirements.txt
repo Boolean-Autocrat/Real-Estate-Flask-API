@@ -1,0 +1,7 @@
+flask
+os
+requests
+Pillow
+python-dotenv
+mysql-connector-python
+rets
