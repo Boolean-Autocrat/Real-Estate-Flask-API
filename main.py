@@ -38,6 +38,7 @@ def residential_all():
     bathrooms = request.args.get("bathrooms")
     sale_lease = request.args.get("salelease")
     list_price = request.args.get("price")
+    any_price = request.args.get("any_price")
     sqft = request.args.get("sqft")
     prop_type = request.args.get("prop_type")
     style = request.args.get("style")
@@ -49,17 +50,19 @@ def residential_all():
     if area:
         query += f" AND Area = '{area}'"
     if bedrooms:
-        query += f" AND Bedrooms = '{bedrooms}'"
+        query += f" AND Bedrooms >= '{bedrooms}'"
     if bathrooms:
-        query += f" AND Washrooms = '{bathrooms}'"
+        query += f" AND Washrooms >= '{bathrooms}'"
     if sale_lease:
         query += f" AND SaleLease = '{sale_lease}'"
     if list_price:
         query += f" AND List_Price <= '{list_price}'"
+    if any_price:
+        query += f" AND List_Price >= '{any_price}'"
     if sqft:
-        query += f" AND Approx_Square_Footage >= '{sqft}'"
+        query += f" AND Approx_Square_Footage <= '{sqft}'"
     if prop_type:
-        query += f" AND Type = '{prop_type}'"
+        query += f" AND Type2 = '{prop_type}'"
     if style:
         query += f" AND Style = '{style}'"
     cursor.execute(query)
@@ -78,7 +81,26 @@ def residential_all():
             "sale/lease": data[189],
         }
         obj.append(obj_app)
-    return jsonify(obj)
+    response = jsonify(obj)
+    response.headers.add("Access-Control-Allow-Origin", "*")
+    return response
+
+
+@app.route("/autocomplete/address", methods=["GET"])
+def autocomplete_address():
+    query = request.args.get("query")
+
+    # Construct the SQL query to fetch autocomplete suggestions
+    sql_query = f"SELECT Address FROM residential WHERE Address LIKE '%{query}%'"
+    cursor.execute(sql_query)
+    result = cursor.fetchall()
+
+    # Extract addresses from the result
+    addresses = [data[0] for data in result]
+
+    response = jsonify(addresses)
+    response.headers.add("Access-Control-Allow-Origin", "*")
+    return response
 
 
 @app.route("/residential/<int:id>")
