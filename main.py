@@ -32,6 +32,8 @@ def update_db():
 
 @app.route("/residential/all", methods=["GET"])
 def residential_all():
+    page = request.args.get("page", default=1, type=int)
+    limit = request.args.get("limit", default=10, type=int)
     area = request.args.get("area")
     address = request.args.get("address")
     bedrooms = request.args.get("bedrooms")
@@ -65,6 +67,12 @@ def residential_all():
         query += f" AND Type2 = '{prop_type}'"
     if style:
         query += f" AND Style = '{style}'"
+
+    offset = (page - 1) * limit  # Calculate the offset based on the page number
+    query += (
+        f" LIMIT {limit} OFFSET {offset}"  # Add LIMIT and OFFSET clauses to the query
+    )
+
     cursor.execute(query)
     result = cursor.fetchall()
 
@@ -91,7 +99,9 @@ def autocomplete_address():
     query = request.args.get("query")
 
     # Construct the SQL query to fetch autocomplete suggestions
-    sql_query = f"SELECT Address FROM residential WHERE Address LIKE '%{query}%'"
+    sql_query = (
+        f"SELECT Address FROM residential WHERE Address LIKE '%{query}%' LIMIT 10"
+    )
     cursor.execute(sql_query)
     result = cursor.fetchall()
 
