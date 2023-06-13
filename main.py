@@ -113,26 +113,30 @@ def autocomplete_address():
     return response
 
 
-@app.route("/residential/<int:id>")
-def residential(id):
-    cursor.execute(
-        "SELECT * FROM residential ORDER BY Access_To_Property1 DESC LIMIT %s;", (id,)
-    )
+@app.route("/residential/distinct", methods=["GET"])
+def residential_distinct():
+    obj = [[], [], []]
+    query = "SELECT DISTINCT Area, Type2, Style FROM residential;"
+    cursor.execute(query)
     result = cursor.fetchall()
-    obj = []
     for data in result:
-        obj_app = {
-            "id": data[0],
-            "address": data[4],
-            "area": data[10],
-            "price": data[70],
-            "bedrooms": data[17],
-            "bathrooms": data[225],
-            "image": data[258],
-            "sale/lease": data[189],
-        }
-        obj.append(obj_app)
-    return jsonify(obj)
+        if data[0] is None:
+            pass
+        else:
+            obj[0].append(data[0])
+        if data[1] is None:
+            pass
+        else:
+            obj[1].append(data[1])
+        if data[2] is None:
+            pass
+        else:
+            obj[2].append(data[2])
+    for i in range(len(obj)):
+        obj[i] = list(set(obj[i]))
+    response = jsonify(obj)
+    response.headers.add("Access-Control-Allow-Origin", "*")
+    return response
 
 
 app.run(host="localhost", port=5000, debug=True)
