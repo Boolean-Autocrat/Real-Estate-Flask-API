@@ -34,8 +34,6 @@ def update_db():
 def residential_all():
     page = request.args.get("page", default=1, type=int)
     limit = request.args.get("limit", default=10, type=int)
-    area = request.args.get("area")
-    address = request.args.get("address")
     bedrooms = request.args.get("bedrooms")
     bathrooms = request.args.get("bathrooms")
     sale_lease = request.args.get("salelease")
@@ -44,13 +42,18 @@ def residential_all():
     sqft = request.args.get("sqft")
     prop_type = request.args.get("prop_type")
     style = request.args.get("style")
+    address_full = request.args.get("address_full")
+    residence_type = request.args.get("residence_type")
 
     # Construct the SQL query with filters
-    query = "SELECT * FROM residential WHERE 1=1"
-    if address:
-        query += f" AND Address LIKE '%{address}%'"
-    if area:
-        query += f" AND Area = '{area}'"
+    query = f"SELECT * FROM {residence_type} WHERE 1=1"
+    if address_full:
+        query += (
+            f" AND Address LIKE '%{address_full}%' OR "
+            f"Postal_Code LIKE '%{address_full}%' OR "
+            f"Area LIKE '%{address_full}%' OR "
+            f"MLS LIKE '%{address_full}%'"
+        )
     if bedrooms:
         query += f" AND Bedrooms >= '{bedrooms}'"
     if bathrooms:
@@ -67,7 +70,6 @@ def residential_all():
         query += f" AND Type2 = '{prop_type}'"
     if style:
         query += f" AND Style = '{style}'"
-
     offset = (page - 1) * limit  # Calculate the offset based on the page number
     query += (
         f" LIMIT {limit} OFFSET {offset}"  # Add LIMIT and OFFSET clauses to the query
@@ -82,11 +84,13 @@ def residential_all():
             "id": data[0],
             "address": data[4],
             "area": data[10],
-            "price": data[70],
+            "price": "{:.2f}".format(float(data[70])),
             "bedrooms": data[17],
+            "postalcode": data[99],
             "bathrooms": data[225],
             "image": data[258],
             "sale/lease": data[189],
+            "address_full": data[4] + ", " + data[10] + " " + data[99],
         }
         obj.append(obj_app)
     response = jsonify(obj)
@@ -94,19 +98,22 @@ def residential_all():
     return response
 
 
-@app.route("/autocomplete/address", methods=["GET"])
+@app.route("/autocomplete/address_full", methods=["GET"])
 def autocomplete_address():
     query = request.args.get("query")
 
-    # Construct the SQL query to fetch autocomplete suggestions
     sql_query = (
-        f"SELECT Address FROM residential WHERE Address LIKE '%{query}%' LIMIT 10"
+        f"SELECT Address, Postal_Code, Area FROM residential WHERE "
+        f"Address LIKE '%{query}%' OR "
+        f"Postal_Code LIKE '%{query}%' OR "
+        f"Area LIKE '%{query}%' OR "
+        f"MLS LIKE '%{query}%'"
+        f"LIMIT 10"
     )
     cursor.execute(sql_query)
     result = cursor.fetchall()
 
-    # Extract addresses from the result
-    addresses = [data[0] for data in result]
+    addresses = [(data[0] + ", " + data[1] + " " + data[2]) for data in result]
 
     response = jsonify(addresses)
     response.headers.add("Access-Control-Allow-Origin", "*")
@@ -133,7 +140,7 @@ def residential_distinct():
         else:
             obj[2].append(data[2])
     for i in range(len(obj)):
-        obj[i] = list(set(obj[i]))
+        obj[i] = sorted(list(set(obj[i])))
     response = jsonify(obj)
     response.headers.add("Access-Control-Allow-Origin", "*")
     return response
