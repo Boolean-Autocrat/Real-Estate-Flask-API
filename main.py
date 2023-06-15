@@ -5,6 +5,7 @@ from mysql.connector import Error
 import mysql.connector
 from rets import Session
 import requests
+import math
 
 load_dotenv()
 
@@ -35,8 +36,8 @@ def update_db():
 
 @app.route("/residential/all", methods=["GET"])
 def residential_all():
-    page = request.args.get("page")
-    limit = request.args.get("limit")
+    page = request.args.get("page", default=1, type=int)
+    limit = request.args.get("limit", default=10, type=int)
     bedrooms = request.args.get("bedrooms")
     bathrooms = request.args.get("bathrooms")
     sale_lease = request.args.get("salelease")
@@ -107,6 +108,55 @@ def residential_all():
         }
         obj.append(obj_app)
     response = jsonify(obj)
+    response.headers.add("Access-Control-Allow-Origin", "*")
+    return response
+
+
+@app.route("/residential_count", methods=["GET"])
+def residential_count():
+    limit = request.args.get("limit", default=10, type=int)
+    bedrooms = request.args.get("bedrooms")
+    bathrooms = request.args.get("bathrooms")
+    sale_lease = request.args.get("salelease")
+    list_price = request.args.get("price")
+    any_price = request.args.get("any_price")
+    sqft = request.args.get("sqft")
+    prop_type = request.args.get("prop_type")
+    style = request.args.get("style")
+    address_full = request.args.get("address_full")
+    residence_type = request.args.get("residence_type")
+    count_query = f"SELECT COUNT(*) FROM {residence_type} WHERE 1=1"
+    if address_full:
+        count_query += (
+            f" AND Address LIKE '%{address_full}%' OR "
+            f"Postal_Code LIKE '%{address_full}%' OR "
+            f"Area LIKE '%{address_full}%' OR "
+            f"MLS LIKE '%{address_full}%'"
+        )
+    if bedrooms:
+        count_query += f" AND Bedrooms >= '{bedrooms}'"
+    if bathrooms:
+        count_query += f" AND Washrooms >= '{bathrooms}'"
+    if sale_lease:
+        count_query += f" AND SaleLease = '{sale_lease}'"
+    if list_price:
+        count_query += f" AND List_Price <= '{list_price}'"
+    if any_price:
+        count_query += f" AND List_Price >= '{any_price}'"
+    if sqft:
+        count_query += f" AND Approx_Square_Footage <= '{sqft}'"
+    if prop_type:
+        count_query += f" AND Type2 = '{prop_type}'"
+    if style:
+        count_query += f" AND Style = '{style}'"
+    if limit:
+        count_query += f" LIMIT {limit}"
+
+    cursor.execute(count_query)
+    total_results = cursor.fetchone()[0]
+    total_pages = math.ceil(total_results / limit)
+
+    response = jsonify({"total_results": total_results, "total_pages": total_pages})
     response.headers.add("Access-Control-Allow-Origin", "*")
     return response
 
