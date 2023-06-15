@@ -20,6 +20,8 @@ connection.autocommit = True
 cursor = connection.cursor()
 app = Flask(__name__)
 
+cursor.execute("DELETE FROM residential WHERE address IS NULL;")
+
 
 @app.route("/update-db")
 def update_db():
@@ -33,8 +35,8 @@ def update_db():
 
 @app.route("/residential/all", methods=["GET"])
 def residential_all():
-    page = request.args.get("page", default=1, type=int)
-    limit = request.args.get("limit", default=10, type=int)
+    page = request.args.get("page")
+    limit = request.args.get("limit")
     bedrooms = request.args.get("bedrooms")
     bathrooms = request.args.get("bathrooms")
     sale_lease = request.args.get("salelease")
@@ -45,7 +47,6 @@ def residential_all():
     style = request.args.get("style")
     address_full = request.args.get("address_full")
     residence_type = request.args.get("residence_type")
-
     # Construct the SQL query with filters
     query = f"SELECT * FROM {residence_type} WHERE 1=1"
     if address_full:
@@ -71,10 +72,9 @@ def residential_all():
         query += f" AND Type2 = '{prop_type}'"
     if style:
         query += f" AND Style = '{style}'"
-    offset = (page - 1) * limit  # Calculate the offset based on the page number
-    query += (
-        f" LIMIT {limit} OFFSET {offset}"  # Add LIMIT and OFFSET clauses to the query
-    )
+    if limit:
+        offset = (page - 1) * limit  # Calculate the offset based on the page number
+        query += f" LIMIT {limit} OFFSET {offset}"  # Add LIMIT and OFFSET clauses to the query
 
     cursor.execute(query)
     result = cursor.fetchall()
@@ -82,14 +82,23 @@ def residential_all():
     obj = []
     for data in result:
         obj_app = {
-            "id": data[0],
             "address": data[4],
             "area": data[10],
+            "about": data[108],
+            "postal_code": data[99],
+            "sqft": data[8],
             "price": "{:.2f}".format(float(data[70])),
             "bedrooms": data[17],
             "bathrooms": data[225],
             "image": data[258],
+            "extras": data[35],
             "sale/lease": data[189],
+            "mls_number": data[78],
+            "slug": data[4].replace(" ", "-").lower()
+            + "-"
+            + data[10].replace(" ", "-").lower()
+            + "-"
+            + data[99].replace(" ", "-"),
             "address_full": data[4]
             + ", "
             + data[10]
