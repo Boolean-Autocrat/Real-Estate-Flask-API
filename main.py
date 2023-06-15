@@ -16,6 +16,7 @@ connection = mysql.connector.connect(
     ssl_ca="cacert.pem",
 )
 
+connection.autocommit = True
 cursor = connection.cursor()
 app = Flask(__name__)
 
@@ -86,11 +87,14 @@ def residential_all():
             "area": data[10],
             "price": "{:.2f}".format(float(data[70])),
             "bedrooms": data[17],
-            "postalcode": data[99],
             "bathrooms": data[225],
             "image": data[258],
             "sale/lease": data[189],
-            "address_full": data[4] + ", " + data[10] + " " + data[99],
+            "address_full": data[4]
+            + ", "
+            + data[10]
+            + " "
+            + ("".join(data[99].split(" ")) if len(data[99]) > 2 else data[99]),
         }
         obj.append(obj_app)
     response = jsonify(obj)
@@ -113,7 +117,16 @@ def autocomplete_address():
     cursor.execute(sql_query)
     result = cursor.fetchall()
 
-    addresses = [(data[0] + ", " + data[1] + " " + data[2]) for data in result]
+    addresses = [
+        (
+            data[0]
+            + ", "
+            + ("".join(data[1].split(" ")) if len(data[1]) > 1 else data[1])
+            + " "
+            + data[2]
+        )
+        for data in result
+    ]
 
     response = jsonify(addresses)
     response.headers.add("Access-Control-Allow-Origin", "*")
@@ -142,6 +155,19 @@ def residential_distinct():
     for i in range(len(obj)):
         obj[i] = sorted(list(set(obj[i])))
     response = jsonify(obj)
+    response.headers.add("Access-Control-Allow-Origin", "*")
+    return response
+
+
+@app.route("/residential/images", methods=["GET"])
+def residential_images():
+    mls_number = request.args.get("mls")
+    query = f"SELECT img_list FROM residential WHERE MLS='{mls_number}';"
+    cursor.execute(query)
+    result = cursor.fetchall()
+    images = result[0][0].replace("[", "").replace("]", "").replace("'", "").split(",")
+    images = [image.strip() for image in images]
+    response = jsonify(images)
     response.headers.add("Access-Control-Allow-Origin", "*")
     return response
 
