@@ -17,11 +17,8 @@ connection = mysql.connector.connect(
     ssl_ca="cacert.pem",
 )
 
-connection.autocommit = True
 cursor = connection.cursor()
 app = Flask(__name__)
-
-cursor.execute("DELETE FROM residential WHERE address IS NULL;")
 
 
 @app.route("/update-db")
