@@ -6,6 +6,7 @@ import mysql.connector
 from rets import Session
 import requests
 import math
+from flask_cors import CORS
 
 load_dotenv()
 
@@ -19,6 +20,19 @@ connection = mysql.connector.connect(
 
 cursor = connection.cursor()
 app = Flask(__name__)
+CORS(app)
+
+
+@app.route("/")
+def home():
+    return "Hello World!"
+
+
+@app.route("/switch-workload")
+def switch_workload():
+    cursor.execute("SET workload='olap'")
+    connection.commit()
+    return "Workload switched successfully"
 
 
 @app.route("/update-db")
@@ -34,7 +48,7 @@ def update_db():
 @app.route("/residential/all", methods=["GET"])
 def residential_all():
     page = request.args.get("page", default=1, type=int)
-    limit = request.args.get("limit", default=10, type=int)
+    limit = request.args.get("limit", type=int)
     bedrooms = request.args.get("bedrooms")
     bathrooms = request.args.get("bathrooms")
     sale_lease = request.args.get("salelease")
@@ -46,6 +60,7 @@ def residential_all():
     address_full = request.args.get("address_full")
     residence_type = request.args.get("residence_type")
     # Construct the SQL query with filters
+    cursor.execute("SET workload='olap'")
     query = f"SELECT * FROM {residence_type} WHERE 1=1"
     if address_full:
         query += (
@@ -105,7 +120,6 @@ def residential_all():
         }
         obj.append(obj_app)
     response = jsonify(obj)
-    response.headers.add("Access-Control-Allow-Origin", "*")
     return response
 
 
@@ -122,6 +136,7 @@ def residential_count():
     style = request.args.get("style")
     address_full = request.args.get("address_full")
     residence_type = request.args.get("residence_type")
+    cursor.execute("SET workload='olap'")
     count_query = f"SELECT COUNT(*) FROM {residence_type} WHERE 1=1"
     if address_full:
         count_query += (
@@ -154,7 +169,6 @@ def residential_count():
     total_pages = math.ceil(total_results / limit)
 
     response = jsonify({"total_results": total_results, "total_pages": total_pages})
-    response.headers.add("Access-Control-Allow-Origin", "*")
     return response
 
 
@@ -170,6 +184,7 @@ def autocomplete_address():
         f"MLS LIKE '%{query}%'"
         f"LIMIT 10"
     )
+    cursor.execute("SET workload='olap'")
     cursor.execute(sql_query)
     result = cursor.fetchall()
 
@@ -185,13 +200,13 @@ def autocomplete_address():
     ]
 
     response = jsonify(addresses)
-    response.headers.add("Access-Control-Allow-Origin", "*")
     return response
 
 
 @app.route("/residential/distinct", methods=["GET"])
 def residential_distinct():
     obj = [[], [], []]
+    cursor.execute("SET workload='olap'")
     query = "SELECT DISTINCT Area, Type2, Style FROM residential;"
     cursor.execute(query)
     result = cursor.fetchall()
@@ -211,7 +226,6 @@ def residential_distinct():
     for i in range(len(obj)):
         obj[i] = sorted(list(set(obj[i])))
     response = jsonify(obj)
-    response.headers.add("Access-Control-Allow-Origin", "*")
     return response
 
 
@@ -224,8 +238,8 @@ def residential_images():
     images = result[0][0].replace("[", "").replace("]", "").replace("'", "").split(",")
     images = [image.strip() for image in images]
     response = jsonify(images)
-    response.headers.add("Access-Control-Allow-Origin", "*")
     return response
 
 
-app.run(host="localhost", port=5000, debug=True)
+if __name__ == "__main__":
+    app.run(debug=True, host="0.0.0.0")
