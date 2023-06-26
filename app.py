@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, abort
 import os
 from dotenv import load_dotenv
 from mysql.connector import Error
@@ -7,8 +7,12 @@ from rets import Session
 import requests
 import math
 from flask_cors import CORS
+from functools import wraps
 
 load_dotenv()
+
+
+API_KEY = os.getenv("API_KEY")
 
 connection = mysql.connector.connect(
     host=os.getenv("HOST"),
@@ -23,12 +27,29 @@ app = Flask(__name__)
 CORS(app)
 
 
+def require_api_key(func):
+    @wraps(func)
+    def decorated_function(*args, **kwargs):
+        # Get the API key from the request headers or query parameters
+        api_key = request.args.get("api_key")
+
+        # Check if the API key is valid
+        if api_key == API_KEY:  # Replace with your actual API key
+            return func(*args, **kwargs)
+        else:
+            return jsonify({"error": "Invalid API key"}), 403  # Unauthorized
+
+    return decorated_function
+
+
 @app.route("/")
+@require_api_key
 def home():
     return "Hello World!"
 
 
 @app.route("/switch-workload")
+@require_api_key
 def switch_workload():
     cursor.execute("SET workload='olap'")
     connection.commit()
@@ -36,16 +57,33 @@ def switch_workload():
 
 
 @app.route("/update-db")
+@require_api_key
 def update_db():
-    login_url = "http://rets.com/login"
-    username = "username"
-    password = "password"
-    rets_client = Session(login_url, username, password)
+    rets_url = "http://rets.torontomls.net:6103/rets-treb3pv/server/login"
+    username = "D23acs"
+    password = "F$4w456"
+    version = "RETS/1.5"
+    rets_client = Session(rets_url, username, password, version)
     rets_client.login()
-    system_data = rets_client.get_system_metadata()
+    resources = rets_client.get_class_metadata(resource="Property")
+    residential = []
+    condos = []
+    commercial = []
+    i = 1
+    for class_ in resources:
+        className = class_["ClassName"]
+        filter_ = {}
+        result = rets_client.search("Property", className, search_filter=filter_)
+        if i == 1:
+            residential.extend(result)
+        elif i == 2:
+            condos.extend(result)
+        elif i == 3:
+            commercial.extend(result)
 
 
 @app.route("/residential/all", methods=["GET"])
+@require_api_key
 def residential_all():
     page = request.args.get("page", default=1, type=int)
     limit = request.args.get("limit", type=int)
@@ -124,6 +162,7 @@ def residential_all():
 
 
 @app.route("/residential_count", methods=["GET"])
+@require_api_key
 def residential_count():
     limit = request.args.get("limit", default=10, type=int)
     bedrooms = request.args.get("bedrooms")
@@ -173,6 +212,7 @@ def residential_count():
 
 
 @app.route("/autocomplete/address_full", methods=["GET"])
+@require_api_key
 def autocomplete_address():
     query = request.args.get("query")
 
@@ -204,6 +244,7 @@ def autocomplete_address():
 
 
 @app.route("/residential/distinct", methods=["GET"])
+@require_api_key
 def residential_distinct():
     obj = [[], [], []]
     cursor.execute("SET workload='olap'")
@@ -230,6 +271,7 @@ def residential_distinct():
 
 
 @app.route("/residential/images", methods=["GET"])
+@require_api_key
 def residential_images():
     mls_number = request.args.get("mls")
     query = f"SELECT img_list FROM residential WHERE MLS='{mls_number}';"
@@ -241,5 +283,6 @@ def residential_images():
     return response
 
 
-if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0")
+app.run(debug=True)
+# if __name__ == "__main__":
+#     app.run(debug=True, host="0.0.0.0")
