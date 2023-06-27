@@ -96,6 +96,7 @@ def residential_all():
     prop_type = request.args.get("prop_type")
     style = request.args.get("style")
     address_full = request.args.get("address_full")
+    city = request.args.get("city")
     residence_type = request.args.get("residence_type")
     # Construct the SQL query with filters
     cursor.execute("SET workload='olap'")
@@ -107,6 +108,8 @@ def residential_all():
             f"Area LIKE '%{address_full}%' OR "
             f"MLS LIKE '%{address_full}%'"
         )
+    if city:
+        query += f" AND Area = '{city}'"
     if bedrooms:
         query += f" AND Bedrooms >= '{bedrooms}'"
     if bathrooms:
@@ -174,6 +177,7 @@ def residential_count():
     prop_type = request.args.get("prop_type")
     style = request.args.get("style")
     address_full = request.args.get("address_full")
+    city = request.args.get("city")
     residence_type = request.args.get("residence_type")
     cursor.execute("SET workload='olap'")
     count_query = f"SELECT COUNT(*) FROM {residence_type} WHERE 1=1"
@@ -184,6 +188,8 @@ def residential_count():
             f"Area LIKE '%{address_full}%' OR "
             f"MLS LIKE '%{address_full}%'"
         )
+    if city:
+        count_query += f" AND Area = '{city}'"
     if bedrooms:
         count_query += f" AND Bedrooms >= '{bedrooms}'"
     if bathrooms:
