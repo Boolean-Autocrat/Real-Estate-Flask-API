@@ -82,7 +82,7 @@ def update_db():
             commercial.extend(result)
 
 
-@app.route("/residential/all", methods=["GET"])
+@app.route("/listing/all", methods=["GET"])
 @require_api_key
 def residential_all():
     page = request.args.get("page", default=1, type=int)
@@ -103,27 +103,27 @@ def residential_all():
     query = f"SELECT * FROM {residence_type} WHERE 1=1"
     if address_full:
         query += (
-            f" AND Address LIKE '%{address_full}%' OR "
-            f"Postal_Code LIKE '%{address_full}%' OR "
+            f" AND Addr LIKE '%{address_full}%' OR "
+            f"Zip LIKE '%{address_full}%' OR "
             f"Area LIKE '%{address_full}%' OR "
-            f"MLS LIKE '%{address_full}%'"
+            f"Ml_num LIKE '%{address_full}%'"
         )
     if city:
         query += f" AND Area = '{city}'"
     if bedrooms:
-        query += f" AND Bedrooms >= '{bedrooms}'"
+        query += f" AND Br >= '{bedrooms}'"
     if bathrooms:
-        query += f" AND Washrooms >= '{bathrooms}'"
+        query += f" AND Bath_tot >= '{bathrooms}'"
     if sale_lease:
-        query += f" AND SaleLease = '{sale_lease}'"
+        query += f" AND S_r = '{sale_lease}'"
     if list_price:
-        query += f" AND List_Price <= '{list_price}'"
+        query += f" AND Lp_dol <= '{list_price}'"
     if any_price:
-        query += f" AND List_Price >= '{any_price}'"
+        query += f" AND Lp_dol >= '{any_price}'"
     if sqft:
-        query += f" AND Approx_Square_Footage <= '{sqft}'"
+        query += f" AND Sqft <= '{sqft}'"
     if prop_type:
-        query += f" AND Type2 = '{prop_type}'"
+        query += f" AND Type_own1_out = '{prop_type}'"
     if style:
         query += f" AND Style = '{style}'"
     if limit:
@@ -144,7 +144,6 @@ def residential_all():
             "price": "{:.2f}".format(float(data[70])),
             "bedrooms": data[17],
             "bathrooms": data[225],
-            "image": data[258],
             "extras": data[35],
             "sale/lease": data[189],
             "mls_number": data[78],
@@ -164,7 +163,7 @@ def residential_all():
     return response
 
 
-@app.route("/residential_count", methods=["GET"])
+@app.route("/listing_count", methods=["GET"])
 @require_api_key
 def residential_count():
     limit = request.args.get("limit", default=10, type=int)
@@ -183,27 +182,27 @@ def residential_count():
     count_query = f"SELECT COUNT(*) FROM {residence_type} WHERE 1=1"
     if address_full:
         count_query += (
-            f" AND Address LIKE '%{address_full}%' OR "
-            f"Postal_Code LIKE '%{address_full}%' OR "
+            f" AND Addr LIKE '%{address_full}%' OR "
+            f"Zip LIKE '%{address_full}%' OR "
             f"Area LIKE '%{address_full}%' OR "
-            f"MLS LIKE '%{address_full}%'"
+            f"Ml_num LIKE '%{address_full}%'"
         )
     if city:
         count_query += f" AND Area = '{city}'"
     if bedrooms:
-        count_query += f" AND Bedrooms >= '{bedrooms}'"
+        count_query += f" AND Br >= '{bedrooms}'"
     if bathrooms:
-        count_query += f" AND Washrooms >= '{bathrooms}'"
+        count_query += f" AND Bath_tot >= '{bathrooms}'"
     if sale_lease:
-        count_query += f" AND SaleLease = '{sale_lease}'"
+        count_query += f" AND S_r = '{sale_lease}'"
     if list_price:
-        count_query += f" AND List_Price <= '{list_price}'"
+        count_query += f" AND Lp_dol <= '{list_price}'"
     if any_price:
-        count_query += f" AND List_Price >= '{any_price}'"
+        count_query += f" AND Lp_dol >= '{any_price}'"
     if sqft:
-        count_query += f" AND Approx_Square_Footage <= '{sqft}'"
+        count_query += f" AND Sqft <= '{sqft}'"
     if prop_type:
-        count_query += f" AND Type2 = '{prop_type}'"
+        count_query += f" AND Type_own1_out = '{prop_type}'"
     if style:
         count_query += f" AND Style = '{style}'"
     if limit:
@@ -223,11 +222,11 @@ def autocomplete_address():
     query = request.args.get("query")
 
     sql_query = (
-        f"SELECT Address, Postal_Code, Area FROM residential WHERE "
-        f"Address LIKE '%{query}%' OR "
-        f"Postal_Code LIKE '%{query}%' OR "
+        f"SELECT Addr, Zip, Area FROM residential WHERE "
+        f"Addr LIKE '%{query}%' OR "
+        f"Zip LIKE '%{query}%' OR "
         f"Area LIKE '%{query}%' OR "
-        f"MLS LIKE '%{query}%'"
+        f"Ml_num LIKE '%{query}%'"
         f"LIMIT 10"
     )
     cursor.execute("SET workload='olap'")
@@ -249,12 +248,13 @@ def autocomplete_address():
     return response
 
 
-@app.route("/residential/distinct", methods=["GET"])
+@app.route("/listing/distinct", methods=["GET"])
 @require_api_key
 def residential_distinct():
     obj = [[], [], []]
     cursor.execute("SET workload='olap'")
-    query = "SELECT DISTINCT Area, Type2, Style FROM residential;"
+    residence_type = request.args.get("residence_type")
+    query = f"SELECT DISTINCT Area, Type_own1_out, Style FROM {residence_type};"
     cursor.execute(query)
     result = cursor.fetchall()
     for data in result:
@@ -276,19 +276,5 @@ def residential_distinct():
     return response
 
 
-@app.route("/residential/images", methods=["GET"])
-@require_api_key
-def residential_images():
-    mls_number = request.args.get("mls")
-    query = f"SELECT img_list FROM residential WHERE MLS='{mls_number}';"
-    cursor.execute(query)
-    result = cursor.fetchall()
-    images = result[0][0].replace("[", "").replace("]", "").replace("'", "").split(",")
-    images = [image.strip() for image in images]
-    response = jsonify(images)
-    return response
-
-
-app.run(debug=True)
-# if __name__ == "__main__":
-#     app.run(debug=True, host="0.0.0.0")
+if __name__ == "__main__":
+    app.run(debug=True, host="0.0.0.0")
