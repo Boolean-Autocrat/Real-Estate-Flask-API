@@ -1,10 +1,8 @@
-from flask import Flask, jsonify, request, abort
+from flask import Flask, jsonify, request
 import os
 from dotenv import load_dotenv
-from mysql.connector import Error
 import mysql.connector
 from rets import Session
-import requests
 import math
 from flask_cors import CORS
 from functools import wraps
@@ -100,63 +98,80 @@ def residential_all():
     residence_type = request.args.get("residence_type")
     # Construct the SQL query with filters
     cursor.execute("SET workload='olap'")
-    query = f"SELECT * FROM {residence_type} WHERE 1=1"
+    query = "SELECT Addr, Municipality, Ad_text, Zip, Sqft, Lp_dol, Br, Bath_tot, Extras, S_r, Ml_num FROM {0} WHERE 1=1".format(
+        residence_type
+    )
+    params = []
     if address_full:
         query += (
-            f" AND Addr LIKE '%{address_full}%' OR "
-            f"Zip LIKE '%{address_full}%' OR "
-            f"Area LIKE '%{address_full}%' OR "
-            f"Ml_num LIKE '%{address_full}%'"
+            " AND (Addr LIKE %s OR "
+            "Zip LIKE %s OR "
+            "Municipality LIKE %s OR "
+            "Ml_num LIKE %s)"
         )
+        params.extend(["%{0}%".format(address_full)] * 4)
     if city:
-        query += f" AND Area = '{city}'"
+        query += " AND Municipality = %s"
+        params.append(city)
     if bedrooms:
-        query += f" AND Br >= '{bedrooms}'"
+        query += " AND Br >= %s"
+        params.append(int(bedrooms))
     if bathrooms:
-        query += f" AND Bath_tot >= '{bathrooms}'"
+        query += " AND Bath_tot >= %s"
+        params.append(int(bathrooms))
     if sale_lease:
-        query += f" AND S_r = '{sale_lease}'"
+        query += " AND S_r = %s"
+        params.append(sale_lease)
     if list_price:
-        query += f" AND Lp_dol <= '{list_price}'"
+        query += " AND Lp_dol <= %s"
+        params.append(float(list_price))
     if any_price:
-        query += f" AND Lp_dol >= '{any_price}'"
+        query += " AND Lp_dol >= %s"
+        params.append(float(any_price))
     if sqft:
-        query += f" AND Sqft <= '{sqft}'"
+        query += " AND Sqft <= %s"
+        params.append(sqft)
     if prop_type:
-        query += f" AND Type_own1_out = '{prop_type}'"
+        query += " AND Type_own1_out = %s"
+        params.append(prop_type)
     if style:
-        query += f" AND Style = '{style}'"
+        query += " AND Style = %s"
+        params.append(style)
     if limit:
         offset = (page - 1) * limit  # Calculate the offset based on the page number
-        query += f" LIMIT {limit} OFFSET {offset}"  # Add LIMIT and OFFSET clauses to the query
-
-    cursor.execute(query)
+        query += " LIMIT %s OFFSET %s"  # Add LIMIT and OFFSET clauses to the query
+        params.extend([limit, offset])
+    cursor.execute(query, params)
     result = cursor.fetchall()
 
     obj = []
     for data in result:
         obj_app = {
-            "address": data[4],
-            "area": data[10],
-            "about": data[108],
-            "postal_code": data[99],
-            "sqft": data[8],
-            "price": "{:.2f}".format(float(data[70])),
-            "bedrooms": data[17],
-            "bathrooms": data[225],
-            "extras": data[35],
-            "sale/lease": data[189],
-            "mls_number": data[78],
-            "slug": data[4].replace(" ", "-").lower()
+            "address": data[0],
+            "area": data[1],
+            "about": data[2],
+            "postal_code": data[3],
+            "sqft": data[4],
+            "price": "{:.2f}".format(float(data[5])),
+            "bedrooms": data[6],
+            "bathrooms": data[7],
+            "extras": data[8],
+            "sale/lease": data[9],
+            "mls_number": data[10],
+            "slug": data[0].replace(" ", "-").lower()
             + "-"
-            + data[10].replace(" ", "-").lower()
+            + data[1].replace(" ", "-").lower()
             + "-"
-            + data[99].replace(" ", "-"),
-            "address_full": data[4]
+            + data[10].replace(" ", "-")
+            if data[0] and data[1]
+            else data[10],
+            "address_full": data[0]
             + ", "
-            + data[10]
+            + data[1]
             + " "
-            + ("".join(data[99].split(" ")) if len(data[99]) > 2 else data[99]),
+            + ("".join(data[3].split(" ")) if data[3] and len(data[3]) > 2 else data[3])
+            if data[0] and data[1] and data[3]
+            else "",
         }
         obj.append(obj_app)
     response = jsonify(obj)
@@ -179,36 +194,47 @@ def residential_count():
     city = request.args.get("city")
     residence_type = request.args.get("residence_type")
     cursor.execute("SET workload='olap'")
-    count_query = f"SELECT COUNT(*) FROM {residence_type} WHERE 1=1"
+    count_query = "SELECT COUNT(*) FROM {0} WHERE 1=1".format(residence_type)
+    params = []
     if address_full:
         count_query += (
-            f" AND Addr LIKE '%{address_full}%' OR "
-            f"Zip LIKE '%{address_full}%' OR "
-            f"Area LIKE '%{address_full}%' OR "
-            f"Ml_num LIKE '%{address_full}%'"
+            " AND (Addr LIKE %s OR "
+            "Zip LIKE %s OR "
+            "Municipality LIKE %s OR "
+            "Ml_num LIKE %s)"
         )
+        params.extend(["%{0}%".format(address_full)] * 4)
     if city:
-        count_query += f" AND Area = '{city}'"
+        count_query += " AND Municipality = %s"
+        params.append(city)
     if bedrooms:
-        count_query += f" AND Br >= '{bedrooms}'"
+        count_query += " AND Br >= %s"
+        params.append(int(bedrooms))
     if bathrooms:
-        count_query += f" AND Bath_tot >= '{bathrooms}'"
+        count_query += " AND Bath_tot >= %s"
+        params.append(int(bathrooms))
     if sale_lease:
-        count_query += f" AND S_r = '{sale_lease}'"
+        count_query += " AND S_r = %s"
+        params.append(sale_lease)
     if list_price:
-        count_query += f" AND Lp_dol <= '{list_price}'"
+        count_query += " AND Lp_dol <= %s"
+        params.append(float(list_price))
     if any_price:
-        count_query += f" AND Lp_dol >= '{any_price}'"
+        count_query += " AND Lp_dol >= %s"
+        params.append(float(any_price))
     if sqft:
-        count_query += f" AND Sqft <= '{sqft}'"
+        count_query += " AND Sqft <= %s"
+        params.append(sqft)
     if prop_type:
-        count_query += f" AND Type_own1_out = '{prop_type}'"
+        count_query += " AND Type_own1_out = %s"
+        params.append(prop_type)
     if style:
-        count_query += f" AND Style = '{style}'"
+        count_query += " AND Style = %s"
+        params.append(style)
     if limit:
         count_query += f" LIMIT {limit}"
 
-    cursor.execute(count_query)
+    cursor.execute(count_query, params)
     total_results = cursor.fetchone()[0]
     total_pages = math.ceil(total_results / limit)
 
@@ -220,17 +246,18 @@ def residential_count():
 @require_api_key
 def autocomplete_address():
     query = request.args.get("query")
-
+    params = []
+    params.extend(["%{0}%".format(query)] * 4)
     sql_query = (
-        f"SELECT Addr, Zip, Area FROM residential WHERE "
-        f"Addr LIKE '%{query}%' OR "
-        f"Zip LIKE '%{query}%' OR "
-        f"Area LIKE '%{query}%' OR "
-        f"Ml_num LIKE '%{query}%'"
-        f"LIMIT 10"
+        "SELECT Addr, Zip, Municipality FROM residential WHERE "
+        "Addr LIKE %s OR "
+        "Zip LIKE %s OR "
+        "Municipality LIKE %s OR "
+        "Ml_num LIKE %s"
+        "LIMIT 10"
     )
     cursor.execute("SET workload='olap'")
-    cursor.execute(sql_query)
+    cursor.execute(sql_query, params)
     result = cursor.fetchall()
 
     addresses = [
@@ -254,7 +281,7 @@ def residential_distinct():
     obj = [[], [], []]
     cursor.execute("SET workload='olap'")
     residence_type = request.args.get("residence_type")
-    query = f"SELECT DISTINCT Area, Type_own1_out, Style FROM {residence_type};"
+    query = "SELECT DISTINCT Type_own1_out, Style FROM {0};".format(residence_type)
     cursor.execute(query)
     result = cursor.fetchall()
     for data in result:
