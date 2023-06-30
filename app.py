@@ -82,7 +82,7 @@ def update_db():
 
 @app.route("/listing/all", methods=["GET"])
 @require_api_key
-def residential_all():
+def listing_all():
     page = request.args.get("page", default=1, type=int)
     limit = request.args.get("limit", type=int)
     bedrooms = request.args.get("bedrooms")
@@ -180,7 +180,7 @@ def residential_all():
 
 @app.route("/listing_count", methods=["GET"])
 @require_api_key
-def residential_count():
+def listing_count():
     limit = request.args.get("limit", default=10, type=int)
     bedrooms = request.args.get("bedrooms")
     bathrooms = request.args.get("bathrooms")
@@ -277,7 +277,7 @@ def autocomplete_address():
 
 @app.route("/listing/distinct", methods=["GET"])
 @require_api_key
-def residential_distinct():
+def listing_distinct():
     obj = [[], [], []]
     cursor.execute("SET workload='olap'")
     residence_type = request.args.get("residence_type")
@@ -293,12 +293,152 @@ def residential_distinct():
             pass
         else:
             obj[1].append(data[1])
-        if data[2] is None:
-            pass
-        else:
-            obj[2].append(data[2])
     for i in range(len(obj)):
         obj[i] = sorted(list(set(obj[i])))
+    response = jsonify(obj)
+    return response
+
+
+@app.route("/listing/details", methods=["GET"])
+@require_api_key
+def listing_details():
+    mls_num = request.args.get("mls")
+    residence_type = request.args.get("residence_type")
+    cursor.execute("SET workload='olap'")
+    query = "SELECT Type_own1_out, Style, Bath_tot, Front_ft, Depth, Water, Park_spcs, Fpl_num, Fuel, Cross_st, Bsmt1_out, Occ, Taxes, S_r, Br, Br_plus, Tot_park_spcs, A_c, gar_spaces, Drive, Heating, Pool, Constr1_out, Comp_pts, Front_ft, Level1, Level2, Level3, Level4, Level5, Level6, Level7, Level8, Level9, Level10, Level11, Level12, Rm1_out, Rm1_len, Rm1_wth, Rm1_dc1_out, Rm1_dc2_out, Rm1_dc3_out, Rm2_out, Rm2_len, Rm2_wth, Rm2_dc1_out, Rm2_dc2_out, Rm2_dc3_out, Rm3_out, Rm3_len, Rm3_wth, Rm3_dc1_out, Rm3_dc2_out, Rm3_dc3_out, Rm4_out, Rm4_len, Rm4_wth, Rm4_dc1_out, Rm4_dc2_out, Rm4_dc3_out, Rm5_out, Rm5_len, Rm5_wth, Rm5_dc1_out, Rm5_dc2_out, Rm5_dc3_out, Rm6_out, Rm6_len, Rm6_wth, Rm6_dc1_out, Rm6_dc2_out, Rm6_dc3_out, Rm7_out, Rm7_len, Rm7_wth, Rm7_dc1_out, Rm7_dc2_out, Rm7_dc3_out, Rm8_out, Rm8_len, Rm8_wth, Rm8_dc1_out, Rm8_dc2_out, Rm8_dc3_out, Rm9_out, Rm9_len, Rm9_wth, Rm9_dc1_out, Rm9_dc2_out, Rm9_dc3_out, Rm10_out, Rm10_len, Rm10_wth, Rm10_dc1_out, Rm10_dc2_out, Rm10_dc3_out, Rm11_out, Rm11_len, Rm11_wth, Rm11_dc1_out, Rm11_dc2_out, Rm11_dc3_out, Rm12_out, Rm12_len, Rm12_wth, Rm12_dc1_out, Rm12_dc2_out, Rm12_dc3_out, Rltr, Lp_dol, Timestamp_sql, Tour_url FROM {0} WHERE Ml_num = %s;".format(
+        residence_type
+    )
+    cursor.execute(query, (mls_num,))
+    result = cursor.fetchone()
+    obj = {
+        "property_type": result[0],
+        "house_style": result[1],
+        "bathrooms": result[2],
+        "land_size": str(result[3]) + " x " + str(result[4]) + " FT",
+        "water": result[5],
+        "parking_places": result[6],
+        "fireplace": result[7],
+        "heating_fuel": result[8],
+        "cross_street": result[9],
+        "basement": result[10],
+        "possession_date": result[11],
+        "property_tax": result[12],
+        "sale_lease": result[13],
+        "bedrooms": str(result[14]) + " + " + str(result[15]),
+        "total_parking": result[16],
+        "central_ac": result[17],
+        "garage_spaces": result[18],
+        "driveway": result[19],
+        "heating_type": result[20],
+        "pool_type": result[21],
+        "exterior": result[22],
+        "fronting_on": result[23],
+        "front_footage": result[24],
+        "levels": [
+            result[25],
+            result[26],
+            result[27],
+            result[28],
+            result[29],
+            result[30],
+            result[31],
+            result[32],
+            result[33],
+            result[34],
+            result[35],
+            result[36],
+        ],
+        "rooms": [
+            [
+                result[37],
+                str(result[38]) + "m x " + str(result[39]) + "m",
+                result[40],
+                result[41],
+                result[42],
+            ],
+            [
+                result[43],
+                str(result[44]) + "m x " + str(result[45]) + "m",
+                result[46],
+                result[47],
+                result[48],
+            ],
+            [
+                result[49],
+                str(result[50]) + "m x " + str(result[51]) + "m",
+                result[52],
+                result[53],
+                result[54],
+            ],
+            [
+                result[55],
+                str(result[56]) + "m x " + str(result[57]) + "m",
+                result[58],
+                result[59],
+                result[60],
+            ],
+            [
+                result[61],
+                str(result[62]) + "m x " + str(result[63]) + "m",
+                result[64],
+                result[65],
+                result[66],
+            ],
+            [
+                result[67],
+                str(result[68]) + "m x " + str(result[69]) + "m",
+                result[70],
+                result[71],
+                result[72],
+            ],
+            [
+                result[73],
+                str(result[74]) + "m x " + str(result[75]) + "m",
+                result[76],
+                result[77],
+                result[78],
+            ],
+            [
+                result[79],
+                str(result[80]) + "m x " + str(result[81]) + "m",
+                result[82],
+                result[83],
+                result[84],
+            ],
+            [
+                result[85],
+                str(result[86]) + "m x " + str(result[87]) + "m",
+                result[88],
+                result[89],
+                result[90],
+            ],
+            [
+                result[91],
+                str(result[92]) + "m x " + str(result[93]) + "m",
+                result[94],
+                result[95],
+                result[96],
+            ],
+            [
+                result[97],
+                str(result[98]) + "m x " + str(result[99]) + "m",
+                result[100],
+                result[101],
+                result[102],
+            ],
+            [
+                result[103],
+                str(result[104]) + "m x " + str(result[105]) + "m",
+                result[106],
+                result[107],
+                result[108],
+            ],
+        ],
+        "realtor": result[109],
+        "price": result[110],
+        "date": result[111],
+        "tour_url": result[112],
+    }
     response = jsonify(obj)
     return response
 
