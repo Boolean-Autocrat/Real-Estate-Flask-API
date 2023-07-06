@@ -54,32 +54,6 @@ def switch_workload():
     return "Workload switched successfully"
 
 
-@app.route("/update-db")
-@require_api_key
-def update_db():
-    rets_url = "http://rets.torontomls.net:6103/rets-treb3pv/server/login"
-    username = "D23acs"
-    password = "F$4w456"
-    version = "RETS/1.5"
-    rets_client = Session(rets_url, username, password, version)
-    rets_client.login()
-    resources = rets_client.get_class_metadata(resource="Property")
-    residential = []
-    condos = []
-    commercial = []
-    i = 1
-    for class_ in resources:
-        className = class_["ClassName"]
-        filter_ = {}
-        result = rets_client.search("Property", className, search_filter=filter_)
-        if i == 1:
-            residential.extend(result)
-        elif i == 2:
-            condos.extend(result)
-        elif i == 3:
-            commercial.extend(result)
-
-
 @app.route("/listing/all", methods=["GET"])
 @require_api_key
 def listing_all():
@@ -96,11 +70,17 @@ def listing_all():
     address_full = request.args.get("address_full")
     city = request.args.get("city")
     residence_type = request.args.get("residence_type")
+    mls_number = request.args.get("mls_number")
     # Construct the SQL query with filters
     cursor.execute("SET workload='olap'")
-    query = "SELECT Addr, Municipality, Ad_text, Zip, Sqft, Lp_dol, Br, Bath_tot, Extras, S_r, Ml_num FROM {0} WHERE 1=1".format(
-        residence_type
-    )
+    if residence_type == "residential" or residence_type == "condo":
+        query = "SELECT Addr, Municipality, Ad_text, Zip, Sqft, Lp_dol, Br, Bath_tot, Extras, S_r, Ml_num, Timestamp_sql, Rltr FROM {0} WHERE 1=1".format(
+            residence_type
+        )
+    elif residence_type == "commercial":
+        query = "SELECT Addr, Municipality, Ad_text, Zip, Oa_area, Lp_dol, Extras, S_r, Ml_num, Timestamp_sql, Rltr FROM {0} WHERE 1=1".format(
+            residence_type
+        )
     params = []
     if address_full:
         query += (
@@ -128,8 +108,11 @@ def listing_all():
     if any_price:
         query += " AND Lp_dol >= %s"
         params.append(float(any_price))
-    if sqft:
-        query += " AND Sqft <= %s"
+    if sqft and (residence_type == "residential" or residence_type == "condo"):
+        query += " AND Sqft >= %s"
+        params.append(sqft)
+    if sqft and residence_type == "commercial":
+        query += " AND Oa_area >= %s"
         params.append(sqft)
     if prop_type:
         query += " AND Type_own1_out = %s"
@@ -137,43 +120,87 @@ def listing_all():
     if style:
         query += " AND Style = %s"
         params.append(style)
+    if mls_number:
+        query += " AND Ml_num = %s"
+        params.append(mls_number)
     if limit:
         offset = (page - 1) * limit  # Calculate the offset based on the page number
-        query += " LIMIT %s OFFSET %s"  # Add LIMIT and OFFSET clauses to the query
+        query += " ORDER BY Timestamp_sql DESC LIMIT %s OFFSET %s"  # Add LIMIT and OFFSET clauses to the query
         params.extend([limit, offset])
     cursor.execute(query, params)
     result = cursor.fetchall()
 
     obj = []
-    for data in result:
-        obj_app = {
-            "address": data[0],
-            "area": data[1],
-            "about": data[2],
-            "postal_code": data[3],
-            "sqft": data[4],
-            "price": "{:.2f}".format(float(data[5])),
-            "bedrooms": data[6],
-            "bathrooms": data[7],
-            "extras": data[8],
-            "sale/lease": data[9],
-            "mls_number": data[10],
-            "slug": data[0].replace(" ", "-").lower()
-            + "-"
-            + data[1].replace(" ", "-").lower()
-            + "-"
-            + data[10].replace(" ", "-")
-            if data[0] and data[1]
-            else data[10],
-            "address_full": data[0]
-            + ", "
-            + data[1]
-            + " "
-            + ("".join(data[3].split(" ")) if data[3] and len(data[3]) > 2 else data[3])
-            if data[0] and data[1] and data[3]
-            else "",
-        }
-        obj.append(obj_app)
+    if residence_type == "residential" or residence_type == "condo":
+        for data in result:
+            obj_app = {
+                "address": data[0],
+                "area": data[1],
+                "about": data[2],
+                "postal_code": data[3],
+                "sqft": data[4],
+                "price": "{:.2f}".format(float(data[5])),
+                "bedrooms": data[6],
+                "bathrooms": data[7],
+                "extras": data[8],
+                "sale/lease": data[9],
+                "mls_number": data[10],
+                "slug": data[0].replace(" ", "-").lower()
+                + "-"
+                + data[1].replace(" ", "-").lower()
+                + "-"
+                + data[10].replace(" ", "-")
+                if data[0] and data[1]
+                else data[10],
+                "address_full": data[0]
+                + ", "
+                + data[1]
+                + " "
+                + (
+                    "".join(data[3].split(" "))
+                    if data[3] and len(data[3]) > 2
+                    else data[3]
+                )
+                if data[0] and data[1] and data[3]
+                else "",
+                "timestamp": data[11],
+                "realtor": data[12],
+            }
+            obj.append(obj_app)
+    elif residence_type == "commercial":
+        for data in result:
+            obj_app = {
+                "address": data[0],
+                "area": data[1],
+                "about": data[2],
+                "postal_code": data[3],
+                "sqft": data[4],
+                "price": "{:.2f}".format(float(data[5])),
+                "extras": data[6],
+                "sale/lease": data[7],
+                "mls_number": data[8],
+                "slug": data[0].replace(" ", "-").lower()
+                + "-"
+                + data[1].replace(" ", "-").lower()
+                + "-"
+                + data[8].replace(" ", "-")
+                if data[0] and data[1]
+                else data[8],
+                "address_full": data[0]
+                + ", "
+                + data[1]
+                + " "
+                + (
+                    "".join(data[3].split(" "))
+                    if data[3] and len(data[3]) > 2
+                    else data[3]
+                )
+                if data[0] and data[1] and data[3]
+                else "",
+                "timestamp": data[9],
+                "realtor": data[10],
+            }
+            obj.append(obj_app)
     response = jsonify(obj)
     return response
 
@@ -247,13 +274,16 @@ def listing_count():
 def autocomplete_address():
     query = request.args.get("query")
     params = []
-    params.extend(["%{0}%".format(query)] * 4)
+    params.extend(["%{0}%".format(query)] * 12)
     sql_query = (
-        "SELECT Addr, Zip, Municipality FROM residential WHERE "
-        "Addr LIKE %s OR "
-        "Zip LIKE %s OR "
-        "Municipality LIKE %s OR "
-        "Ml_num LIKE %s"
+        "SELECT Addr, Zip, Municipality FROM residential "
+        "WHERE Addr LIKE %s OR Zip LIKE %s OR Municipality LIKE %s OR Ml_num LIKE %s "
+        "UNION "
+        "SELECT Addr, Zip, Municipality FROM commercial "
+        "WHERE Addr LIKE %s OR Zip LIKE %s OR Municipality LIKE %s OR Ml_num LIKE %s "
+        "UNION "
+        "SELECT Addr, Zip, Municipality FROM condo "
+        "WHERE Addr LIKE %s OR Zip LIKE %s OR Municipality LIKE %s OR Ml_num LIKE %s "
         "LIMIT 10"
     )
     cursor.execute("SET workload='olap'")
@@ -305,140 +335,283 @@ def listing_details():
     mls_num = request.args.get("mls")
     residence_type = request.args.get("residence_type")
     cursor.execute("SET workload='olap'")
-    query = "SELECT Type_own1_out, Style, Bath_tot, Front_ft, Depth, Water, Park_spcs, Fpl_num, Fuel, Cross_st, Bsmt1_out, Occ, Taxes, S_r, Br, Br_plus, Tot_park_spcs, A_c, gar_spaces, Drive, Heating, Pool, Constr1_out, Comp_pts, Front_ft, Level1, Level2, Level3, Level4, Level5, Level6, Level7, Level8, Level9, Level10, Level11, Level12, Rm1_out, Rm1_len, Rm1_wth, Rm1_dc1_out, Rm1_dc2_out, Rm1_dc3_out, Rm2_out, Rm2_len, Rm2_wth, Rm2_dc1_out, Rm2_dc2_out, Rm2_dc3_out, Rm3_out, Rm3_len, Rm3_wth, Rm3_dc1_out, Rm3_dc2_out, Rm3_dc3_out, Rm4_out, Rm4_len, Rm4_wth, Rm4_dc1_out, Rm4_dc2_out, Rm4_dc3_out, Rm5_out, Rm5_len, Rm5_wth, Rm5_dc1_out, Rm5_dc2_out, Rm5_dc3_out, Rm6_out, Rm6_len, Rm6_wth, Rm6_dc1_out, Rm6_dc2_out, Rm6_dc3_out, Rm7_out, Rm7_len, Rm7_wth, Rm7_dc1_out, Rm7_dc2_out, Rm7_dc3_out, Rm8_out, Rm8_len, Rm8_wth, Rm8_dc1_out, Rm8_dc2_out, Rm8_dc3_out, Rm9_out, Rm9_len, Rm9_wth, Rm9_dc1_out, Rm9_dc2_out, Rm9_dc3_out, Rm10_out, Rm10_len, Rm10_wth, Rm10_dc1_out, Rm10_dc2_out, Rm10_dc3_out, Rm11_out, Rm11_len, Rm11_wth, Rm11_dc1_out, Rm11_dc2_out, Rm11_dc3_out, Rm12_out, Rm12_len, Rm12_wth, Rm12_dc1_out, Rm12_dc2_out, Rm12_dc3_out, Rltr, Lp_dol, Timestamp_sql, Tour_url FROM {0} WHERE Ml_num = %s;".format(
-        residence_type
-    )
+    if residence_type == "residential":
+        query = "SELECT Type_own1_out, Style, Bath_tot, Front_ft, Depth, Water, Park_spcs, Fpl_num, Fuel, Cross_st, Bsmt1_out, Occ, Taxes, S_r, Br, Br_plus, Tot_park_spcs, A_c, gar_spaces, Drive, Heating, Pool, Constr1_out, Comp_pts, Front_ft, Level1, Level2, Level3, Level4, Level5, Level6, Level7, Level8, Level9, Level10, Level11, Level12, Rm1_out, Rm1_len, Rm1_wth, Rm1_dc1_out, Rm1_dc2_out, Rm1_dc3_out, Rm2_out, Rm2_len, Rm2_wth, Rm2_dc1_out, Rm2_dc2_out, Rm2_dc3_out, Rm3_out, Rm3_len, Rm3_wth, Rm3_dc1_out, Rm3_dc2_out, Rm3_dc3_out, Rm4_out, Rm4_len, Rm4_wth, Rm4_dc1_out, Rm4_dc2_out, Rm4_dc3_out, Rm5_out, Rm5_len, Rm5_wth, Rm5_dc1_out, Rm5_dc2_out, Rm5_dc3_out, Rm6_out, Rm6_len, Rm6_wth, Rm6_dc1_out, Rm6_dc2_out, Rm6_dc3_out, Rm7_out, Rm7_len, Rm7_wth, Rm7_dc1_out, Rm7_dc2_out, Rm7_dc3_out, Rm8_out, Rm8_len, Rm8_wth, Rm8_dc1_out, Rm8_dc2_out, Rm8_dc3_out, Rm9_out, Rm9_len, Rm9_wth, Rm9_dc1_out, Rm9_dc2_out, Rm9_dc3_out, Rm10_out, Rm10_len, Rm10_wth, Rm10_dc1_out, Rm10_dc2_out, Rm10_dc3_out, Rm11_out, Rm11_len, Rm11_wth, Rm11_dc1_out, Rm11_dc2_out, Rm11_dc3_out, Rm12_out, Rm12_len, Rm12_wth, Rm12_dc1_out, Rm12_dc2_out, Rm12_dc3_out, Rltr, Lp_dol, Timestamp_sql, Tour_url, Addr FROM {0} WHERE Ml_num = %s;".format(
+            residence_type
+        )
+    elif residence_type == "condo":
+        query = "SELECT Type_own1_out, Style, Bath_tot, Locker_num, Maint, Water_inc, Park_spcs, Fpl_num, Fuel, Cross_st, Pets, Occ, Taxes, S_r, Br, Br_plus, Tot_park_spcs, A_c, Gar_type, Park_desig, Heating, Constr1_out, Locker, Addr, Park_fac, Level1, Level2, Level3, Level4, Level5, Level6, Level7, Level8, Level9, Level10, Level11, Level12, Rm1_out, Rm1_len, Rm1_wth, Rm1_dc1_out, Rm1_dc2_out, Rm1_dc3_out, Rm2_out, Rm2_len, Rm2_wth, Rm2_dc1_out, Rm2_dc2_out, Rm2_dc3_out, Rm3_out, Rm3_len, Rm3_wth, Rm3_dc1_out, Rm3_dc2_out, Rm3_dc3_out, Rm4_out, Rm4_len, Rm4_wth, Rm4_dc1_out, Rm4_dc2_out, Rm4_dc3_out, Rm5_out, Rm5_len, Rm5_wth, Rm5_dc1_out, Rm5_dc2_out, Rm5_dc3_out, Rm6_out, Rm6_len, Rm6_wth, Rm6_dc1_out, Rm6_dc2_out, Rm6_dc3_out, Rm7_out, Rm7_len, Rm7_wth, Rm7_dc1_out, Rm7_dc2_out, Rm7_dc3_out, Rm8_out, Rm8_len, Rm8_wth, Rm8_dc1_out, Rm8_dc2_out, Rm8_dc3_out, Rm9_out, Rm9_len, Rm9_wth, Rm9_dc1_out, Rm9_dc2_out, Rm9_dc3_out, Rm10_out, Rm10_len, Rm10_wth, Rm10_dc1_out, Rm10_dc2_out, Rm10_dc3_out, Rm11_out, Rm11_len, Rm11_wth, Rm11_dc1_out, Rm11_dc2_out, Rm11_dc3_out, Rm12_out, Rm12_len, Rm12_wth, Rm12_dc1_out, Rm12_dc2_out, Rm12_dc3_out, Rltr, Lp_dol, Timestamp_sql, Tour_url, Bldg_amen1_out, Bldg_amen2_out, Bldg_amen3_out, Bldg_amen4_out, Bldg_amen5_out, Bldg_amen6_out FROM {0} WHERE Ml_num = %s;".format(
+            residence_type
+        )
     cursor.execute(query, (mls_num,))
     result = cursor.fetchone()
-    obj = {
-        "property_type": result[0],
-        "house_style": result[1],
-        "bathrooms": result[2],
-        "land_size": str(result[3]) + " x " + str(result[4]) + " FT",
-        "water": result[5],
-        "parking_places": result[6],
-        "fireplace": result[7],
-        "heating_fuel": result[8],
-        "cross_street": result[9],
-        "basement": result[10],
-        "possession_date": result[11],
-        "property_tax": result[12],
-        "sale_lease": result[13],
-        "bedrooms": str(result[14]) + " + " + str(result[15]),
-        "total_parking": result[16],
-        "central_ac": result[17],
-        "garage_spaces": result[18],
-        "driveway": result[19],
-        "heating_type": result[20],
-        "pool_type": result[21],
-        "exterior": result[22],
-        "fronting_on": result[23],
-        "front_footage": result[24],
-        "levels": [
-            result[25],
-            result[26],
-            result[27],
-            result[28],
-            result[29],
-            result[30],
-            result[31],
-            result[32],
-            result[33],
-            result[34],
-            result[35],
-            result[36],
-        ],
-        "rooms": [
-            [
-                result[37],
-                str(result[38]) + "m x " + str(result[39]) + "m",
-                result[40],
-                result[41],
-                result[42],
+    if residence_type == "residential":
+        obj = {
+            "property_type": result[0],
+            "house_style": result[1],
+            "bathrooms": result[2],
+            "land_size": str(result[3]) + " x " + str(result[4]) + " FT",
+            "water": result[5],
+            "parking_places": result[6],
+            "fireplace": result[7],
+            "heating_fuel": result[8],
+            "cross_street": result[9],
+            "basement": result[10],
+            "possession_date": result[11],
+            "property_tax": result[12],
+            "sale_lease": result[13],
+            "bedrooms": str(result[14]) + " + " + str(result[15]),
+            "total_parking": result[16],
+            "central_ac": result[17],
+            "garage_spaces": result[18],
+            "driveway": result[19],
+            "heating_type": result[20],
+            "pool_type": result[21],
+            "exterior": result[22],
+            "fronting_on": result[23],
+            "front_footage": result[24],
+            "levels": [
+                result[25],
+                result[26],
+                result[27],
+                result[28],
+                result[29],
+                result[30],
+                result[31],
+                result[32],
+                result[33],
+                result[34],
+                result[35],
+                result[36],
             ],
-            [
-                result[43],
-                str(result[44]) + "m x " + str(result[45]) + "m",
-                result[46],
-                result[47],
-                result[48],
+            "rooms": [
+                [
+                    result[37],
+                    str(result[38]) + "m x " + str(result[39]) + "m",
+                    result[40],
+                    result[41],
+                    result[42],
+                ],
+                [
+                    result[43],
+                    str(result[44]) + "m x " + str(result[45]) + "m",
+                    result[46],
+                    result[47],
+                    result[48],
+                ],
+                [
+                    result[49],
+                    str(result[50]) + "m x " + str(result[51]) + "m",
+                    result[52],
+                    result[53],
+                    result[54],
+                ],
+                [
+                    result[55],
+                    str(result[56]) + "m x " + str(result[57]) + "m",
+                    result[58],
+                    result[59],
+                    result[60],
+                ],
+                [
+                    result[61],
+                    str(result[62]) + "m x " + str(result[63]) + "m",
+                    result[64],
+                    result[65],
+                    result[66],
+                ],
+                [
+                    result[67],
+                    str(result[68]) + "m x " + str(result[69]) + "m",
+                    result[70],
+                    result[71],
+                    result[72],
+                ],
+                [
+                    result[73],
+                    str(result[74]) + "m x " + str(result[75]) + "m",
+                    result[76],
+                    result[77],
+                    result[78],
+                ],
+                [
+                    result[79],
+                    str(result[80]) + "m x " + str(result[81]) + "m",
+                    result[82],
+                    result[83],
+                    result[84],
+                ],
+                [
+                    result[85],
+                    str(result[86]) + "m x " + str(result[87]) + "m",
+                    result[88],
+                    result[89],
+                    result[90],
+                ],
+                [
+                    result[91],
+                    str(result[92]) + "m x " + str(result[93]) + "m",
+                    result[94],
+                    result[95],
+                    result[96],
+                ],
+                [
+                    result[97],
+                    str(result[98]) + "m x " + str(result[99]) + "m",
+                    result[100],
+                    result[101],
+                    result[102],
+                ],
+                [
+                    result[103],
+                    str(result[104]) + "m x " + str(result[105]) + "m",
+                    result[106],
+                    result[107],
+                    result[108],
+                ],
             ],
-            [
-                result[49],
-                str(result[50]) + "m x " + str(result[51]) + "m",
-                result[52],
-                result[53],
-                result[54],
+            "realtor": result[109],
+            "price": result[110],
+            "date": result[111],
+            "tour_url": result[112],
+            "address": result[113],
+        }
+    elif residence_type == "condo":
+        obj = {
+            "property_type": result[0],
+            "house_style": result[1],
+            "bathrooms": result[2],
+            "locker_num": result[3],
+            "maintenance": result[4],
+            "water": result[5],
+            "parking_places": result[6],
+            "fireplace": result[7],
+            "heating_fuel": result[8],
+            "cross_street": result[9],
+            "pets": result[10],
+            "possession_date": result[11],
+            "property_tax": result[12],
+            "sale_lease": result[13],
+            "bedrooms": str(result[14]) + " + " + str(result[15]),
+            "total_parking": result[16],
+            "central_ac": result[17],
+            "garage_type": result[18],
+            "parking_type": result[19],
+            "heating_type": result[20],
+            "exterior": result[21],
+            "locker": result[22],
+            "address": result[23],
+            "parking_drive": result[24],
+            "levels": [
+                result[25],
+                result[26],
+                result[27],
+                result[28],
+                result[29],
+                result[30],
+                result[31],
+                result[32],
+                result[33],
+                result[34],
+                result[35],
+                result[36],
             ],
-            [
-                result[55],
-                str(result[56]) + "m x " + str(result[57]) + "m",
-                result[58],
-                result[59],
-                result[60],
+            "rooms": [
+                [
+                    result[37],
+                    str(result[38]) + "m x " + str(result[39]) + "m",
+                    result[40],
+                    result[41],
+                    result[42],
+                ],
+                [
+                    result[43],
+                    str(result[44]) + "m x " + str(result[45]) + "m",
+                    result[46],
+                    result[47],
+                    result[48],
+                ],
+                [
+                    result[49],
+                    str(result[50]) + "m x " + str(result[51]) + "m",
+                    result[52],
+                    result[53],
+                    result[54],
+                ],
+                [
+                    result[55],
+                    str(result[56]) + "m x " + str(result[57]) + "m",
+                    result[58],
+                    result[59],
+                    result[60],
+                ],
+                [
+                    result[61],
+                    str(result[62]) + "m x " + str(result[63]) + "m",
+                    result[64],
+                    result[65],
+                    result[66],
+                ],
+                [
+                    result[67],
+                    str(result[68]) + "m x " + str(result[69]) + "m",
+                    result[70],
+                    result[71],
+                    result[72],
+                ],
+                [
+                    result[73],
+                    str(result[74]) + "m x " + str(result[75]) + "m",
+                    result[76],
+                    result[77],
+                    result[78],
+                ],
+                [
+                    result[79],
+                    str(result[80]) + "m x " + str(result[81]) + "m",
+                    result[82],
+                    result[83],
+                    result[84],
+                ],
+                [
+                    result[85],
+                    str(result[86]) + "m x " + str(result[87]) + "m",
+                    result[88],
+                    result[89],
+                    result[90],
+                ],
+                [
+                    result[91],
+                    str(result[92]) + "m x " + str(result[93]) + "m",
+                    result[94],
+                    result[95],
+                    result[96],
+                ],
+                [
+                    result[97],
+                    str(result[98]) + "m x " + str(result[99]) + "m",
+                    result[100],
+                    result[101],
+                    result[102],
+                ],
+                [
+                    result[103],
+                    str(result[104]) + "m x " + str(result[105]) + "m",
+                    result[106],
+                    result[107],
+                    result[108],
+                ],
             ],
-            [
-                result[61],
-                str(result[62]) + "m x " + str(result[63]) + "m",
-                result[64],
-                result[65],
-                result[66],
-            ],
-            [
-                result[67],
-                str(result[68]) + "m x " + str(result[69]) + "m",
-                result[70],
-                result[71],
-                result[72],
-            ],
-            [
-                result[73],
-                str(result[74]) + "m x " + str(result[75]) + "m",
-                result[76],
-                result[77],
-                result[78],
-            ],
-            [
-                result[79],
-                str(result[80]) + "m x " + str(result[81]) + "m",
-                result[82],
-                result[83],
-                result[84],
-            ],
-            [
-                result[85],
-                str(result[86]) + "m x " + str(result[87]) + "m",
-                result[88],
-                result[89],
-                result[90],
-            ],
-            [
-                result[91],
-                str(result[92]) + "m x " + str(result[93]) + "m",
-                result[94],
-                result[95],
-                result[96],
-            ],
-            [
-                result[97],
-                str(result[98]) + "m x " + str(result[99]) + "m",
-                result[100],
-                result[101],
-                result[102],
-            ],
-            [
-                result[103],
-                str(result[104]) + "m x " + str(result[105]) + "m",
-                result[106],
-                result[107],
-                result[108],
-            ],
-        ],
-        "realtor": result[109],
-        "price": result[110],
-        "date": result[111],
-        "tour_url": result[112],
-    }
+            "realtor": result[109],
+            "price": result[110],
+            "date": result[111],
+            "tour_url": result[112],
+            "building_amenities": ("" if str(result[113]) == None else str(result[113]))
+            + ("" if str(result[114]) == None else ", " + str(result[114]))
+            + ("" if str(result[115]) == None else ", " + str(result[115]))
+            + ("" if str(result[116]) == None else ", " + str(result[116]))
+            + ("" if str(result[117]) == None else ", " + str(result[117])),
+        }
     response = jsonify(obj)
     return response
 
