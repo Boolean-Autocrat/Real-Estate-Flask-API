@@ -2,7 +2,6 @@ from flask import Flask, jsonify, request
 import os
 from dotenv import load_dotenv
 import mysql.connector
-from rets import Session
 import math
 from flask_cors import CORS
 from functools import wraps
@@ -74,11 +73,11 @@ def listing_all():
     # Construct the SQL query with filters
     cursor.execute("SET workload='olap'")
     if residence_type == "residential" or residence_type == "condo":
-        query = "SELECT Addr, Municipality, Ad_text, Zip, Sqft, Lp_dol, Br, Bath_tot, Extras, S_r, Ml_num, Timestamp_sql, Rltr FROM {0} WHERE 1=1".format(
+        query = "SELECT Addr, Municipality, Ad_text, Zip, Sqft, Lp_dol, Br, Bath_tot, Extras, S_r, Ml_num, Timestamp_sql, Rltr FROM {0} WHERE Status='A'".format(
             residence_type
         )
     elif residence_type == "commercial":
-        query = "SELECT Addr, Municipality, Ad_text, Zip, Oa_area, Lp_dol, Extras, S_r, Ml_num, Timestamp_sql, Rltr FROM {0} WHERE 1=1".format(
+        query = "SELECT Addr, Municipality, Ad_text, Zip, Oa_area, Lp_dol, Extras, S_r, Ml_num, Timestamp_sql, Rltr FROM {0} WHERE Status='A'".format(
             residence_type
         )
     params = []
@@ -205,6 +204,120 @@ def listing_all():
     return response
 
 
+@app.route("/listing/similar", methods=["GET"])
+def listing_similar():
+    limit = request.args.get("limit", type=int)
+    postal_code = request.args.get("postal")
+    city = request.args.get("city")
+    residence_type = request.args.get("residence_type")
+    mls_number = request.args.get("mls")
+    # Construct the SQL query with filters
+    cursor.execute("SET workload='olap'")
+    if residence_type == "residential" or residence_type == "condo":
+        query = "SELECT Addr, Municipality, Ad_text, Zip, Sqft, Lp_dol, Br, Bath_tot, Extras, S_r, Ml_num, Timestamp_sql, Rltr FROM {0} WHERE Status='A'".format(
+            residence_type
+        )
+    elif residence_type == "commercial":
+        query = "SELECT Addr, Municipality, Ad_text, Zip, Oa_area, Lp_dol, Extras, S_r, Ml_num, Timestamp_sql, Rltr FROM {0} WHERE Status='A'".format(
+            residence_type
+        )
+    conditions = []
+    params = []
+    if mls_number:
+        params.append(mls_number)
+
+    if postal_code:
+        conditions.append("Zip = %s")
+        params.append(postal_code)
+
+    if city:
+        conditions.append("Municipality = %s")
+        params.append(city)
+
+    query += (
+        " AND Ml_num!=%s AND ("
+        + " OR ".join(conditions)
+        + ") ORDER BY CASE WHEN Zip = %s THEN 1 ELSE 2 END LIMIT %s"
+    )
+    params.extend([postal_code, limit])
+    cursor.execute(query, params)
+    result = cursor.fetchall()
+
+    obj = []
+    if residence_type == "residential" or residence_type == "condo":
+        for data in result:
+            obj_app = {
+                "address": data[0],
+                "area": data[1],
+                "about": data[2],
+                "postal_code": data[3],
+                "sqft": data[4],
+                "price": "{:.2f}".format(float(data[5])),
+                "bedrooms": data[6],
+                "bathrooms": data[7],
+                "extras": data[8],
+                "sale/lease": data[9],
+                "mls_number": data[10],
+                "slug": data[0].replace(" ", "-").lower()
+                + "-"
+                + data[1].replace(" ", "-").lower()
+                + "-"
+                + data[10].replace(" ", "-")
+                if data[0] and data[1]
+                else data[10],
+                "address_full": data[0]
+                + ", "
+                + data[1]
+                + " "
+                + (
+                    "".join(data[3].split(" "))
+                    if data[3] and len(data[3]) > 2
+                    else data[3]
+                )
+                if data[0] and data[1] and data[3]
+                else "",
+                "timestamp": data[11],
+                "realtor": data[12],
+            }
+            obj.append(obj_app)
+    elif residence_type == "commercial":
+        for data in result:
+            obj_app = {
+                "address": data[0],
+                "area": data[1],
+                "about": data[2],
+                "postal_code": data[3],
+                "sqft": data[4],
+                "price": "{:.2f}".format(float(data[5])),
+                "extras": data[6],
+                "sale/lease": data[7],
+                "mls_number": data[8],
+                "slug": data[0].replace(" ", "-").lower()
+                + "-"
+                + data[1].replace(" ", "-").lower()
+                + "-"
+                + data[8].replace(" ", "-")
+                if data[0] and data[1]
+                else data[8],
+                "address_full": data[0]
+                + ", "
+                + data[1]
+                + " "
+                + (
+                    "".join(data[3].split(" "))
+                    if data[3] and len(data[3]) > 2
+                    else data[3]
+                )
+                if data[0] and data[1] and data[3]
+                else "",
+                "timestamp": data[9],
+                "realtor": data[10],
+            }
+            obj.append(obj_app)
+    response = jsonify(obj)
+    return response
+
+
 @app.route("/listing_count", methods=["GET"])
 @require_api_key
 def listing_count():
@@ -221,7 +334,7 @@ def listing_count():
     city = request.args.get("city")
     residence_type = request.args.get("residence_type")
     cursor.execute("SET workload='olap'")
-    count_query = "SELECT COUNT(*) FROM {0} WHERE 1=1".format(residence_type)
+    count_query = "SELECT COUNT(*) FROM {0} WHERE Status='A'".format(residence_type)
     params = []
     if address_full:
         count_query += (
@@ -276,14 +389,17 @@ def autocomplete_address():
     params = []
     params.extend(["%{0}%".format(query)] * 12)
     sql_query = (
-        "SELECT Addr, Zip, Municipality FROM residential "
-        "WHERE Addr LIKE %s OR Zip LIKE %s OR Municipality LIKE %s OR Ml_num LIKE %s "
-        "UNION "
-        "SELECT Addr, Zip, Municipality FROM commercial "
-        "WHERE Addr LIKE %s OR Zip LIKE %s OR Municipality LIKE %s OR Ml_num LIKE %s "
-        "UNION "
-        "SELECT Addr, Zip, Municipality FROM condo "
-        "WHERE Addr LIKE %s OR Zip LIKE %s OR Municipality LIKE %s OR Ml_num LIKE %s "
+        "SELECT Addr, Zip, Municipality "
+        "FROM ("
+        "   SELECT Addr, Zip, Municipality FROM residential "
+        "   WHERE (Addr LIKE %s OR Zip LIKE %s OR Municipality LIKE %s OR Ml_num LIKE %s) AND Status='A' "
+        "   UNION ALL "
+        "   SELECT Addr, Zip, Municipality FROM commercial "
+        "   WHERE (Addr LIKE %s OR Zip LIKE %s OR Municipality LIKE %s OR Ml_num LIKE %s) AND Status='A' "
+        "   UNION ALL "
+        "   SELECT Addr, Zip, Municipality FROM condo "
+        "   WHERE (Addr LIKE %s OR Zip LIKE %s OR Municipality LIKE %s OR Ml_num LIKE %s) AND Status='A' "
+        ") AS subquery "
         "LIMIT 10"
     )
     cursor.execute("SET workload='olap'")
@@ -311,7 +427,9 @@ def listing_distinct():
     obj = [[], [], []]
     cursor.execute("SET workload='olap'")
     residence_type = request.args.get("residence_type")
-    query = "SELECT DISTINCT Type_own1_out, Style FROM {0};".format(residence_type)
+    query = "SELECT DISTINCT Type_own1_out FROM {0} WHERE Status='A';".format(
+        residence_type
+    )
     cursor.execute(query)
     result = cursor.fetchall()
     for data in result:
@@ -319,10 +437,6 @@ def listing_distinct():
             pass
         else:
             obj[0].append(data[0])
-        if data[1] is None:
-            pass
-        else:
-            obj[1].append(data[1])
     for i in range(len(obj)):
         obj[i] = sorted(list(set(obj[i])))
     response = jsonify(obj)
@@ -336,11 +450,15 @@ def listing_details():
     residence_type = request.args.get("residence_type")
     cursor.execute("SET workload='olap'")
     if residence_type == "residential":
-        query = "SELECT Type_own1_out, Style, Bath_tot, Front_ft, Depth, Water, Park_spcs, Fpl_num, Fuel, Cross_st, Bsmt1_out, Occ, Taxes, S_r, Br, Br_plus, Tot_park_spcs, A_c, gar_spaces, Drive, Heating, Pool, Constr1_out, Comp_pts, Front_ft, Level1, Level2, Level3, Level4, Level5, Level6, Level7, Level8, Level9, Level10, Level11, Level12, Rm1_out, Rm1_len, Rm1_wth, Rm1_dc1_out, Rm1_dc2_out, Rm1_dc3_out, Rm2_out, Rm2_len, Rm2_wth, Rm2_dc1_out, Rm2_dc2_out, Rm2_dc3_out, Rm3_out, Rm3_len, Rm3_wth, Rm3_dc1_out, Rm3_dc2_out, Rm3_dc3_out, Rm4_out, Rm4_len, Rm4_wth, Rm4_dc1_out, Rm4_dc2_out, Rm4_dc3_out, Rm5_out, Rm5_len, Rm5_wth, Rm5_dc1_out, Rm5_dc2_out, Rm5_dc3_out, Rm6_out, Rm6_len, Rm6_wth, Rm6_dc1_out, Rm6_dc2_out, Rm6_dc3_out, Rm7_out, Rm7_len, Rm7_wth, Rm7_dc1_out, Rm7_dc2_out, Rm7_dc3_out, Rm8_out, Rm8_len, Rm8_wth, Rm8_dc1_out, Rm8_dc2_out, Rm8_dc3_out, Rm9_out, Rm9_len, Rm9_wth, Rm9_dc1_out, Rm9_dc2_out, Rm9_dc3_out, Rm10_out, Rm10_len, Rm10_wth, Rm10_dc1_out, Rm10_dc2_out, Rm10_dc3_out, Rm11_out, Rm11_len, Rm11_wth, Rm11_dc1_out, Rm11_dc2_out, Rm11_dc3_out, Rm12_out, Rm12_len, Rm12_wth, Rm12_dc1_out, Rm12_dc2_out, Rm12_dc3_out, Rltr, Lp_dol, Timestamp_sql, Tour_url, Addr FROM {0} WHERE Ml_num = %s;".format(
+        query = "SELECT Type_own1_out, Style, Bath_tot, Front_ft, Depth, Water, Park_spcs, Fpl_num, Fuel, Cross_st, Bsmt1_out, Occ, Taxes, S_r, Br, Br_plus, Tot_park_spcs, A_c, gar_spaces, Drive, Heating, Pool, Constr1_out, Comp_pts, Front_ft, Level1, Level2, Level3, Level4, Level5, Level6, Level7, Level8, Level9, Level10, Level11, Level12, Rm1_out, Rm1_len, Rm1_wth, Rm1_dc1_out, Rm1_dc2_out, Rm1_dc3_out, Rm2_out, Rm2_len, Rm2_wth, Rm2_dc1_out, Rm2_dc2_out, Rm2_dc3_out, Rm3_out, Rm3_len, Rm3_wth, Rm3_dc1_out, Rm3_dc2_out, Rm3_dc3_out, Rm4_out, Rm4_len, Rm4_wth, Rm4_dc1_out, Rm4_dc2_out, Rm4_dc3_out, Rm5_out, Rm5_len, Rm5_wth, Rm5_dc1_out, Rm5_dc2_out, Rm5_dc3_out, Rm6_out, Rm6_len, Rm6_wth, Rm6_dc1_out, Rm6_dc2_out, Rm6_dc3_out, Rm7_out, Rm7_len, Rm7_wth, Rm7_dc1_out, Rm7_dc2_out, Rm7_dc3_out, Rm8_out, Rm8_len, Rm8_wth, Rm8_dc1_out, Rm8_dc2_out, Rm8_dc3_out, Rm9_out, Rm9_len, Rm9_wth, Rm9_dc1_out, Rm9_dc2_out, Rm9_dc3_out, Rm10_out, Rm10_len, Rm10_wth, Rm10_dc1_out, Rm10_dc2_out, Rm10_dc3_out, Rm11_out, Rm11_len, Rm11_wth, Rm11_dc1_out, Rm11_dc2_out, Rm11_dc3_out, Rm12_out, Rm12_len, Rm12_wth, Rm12_dc1_out, Rm12_dc2_out, Rm12_dc3_out, Rltr, Lp_dol, Timestamp_sql, Tour_url, Addr FROM {0} WHERE Ml_num = %s AND Status='A';".format(
             residence_type
         )
     elif residence_type == "condo":
-        query = "SELECT Type_own1_out, Style, Bath_tot, Locker_num, Maint, Water_inc, Park_spcs, Fpl_num, Fuel, Cross_st, Pets, Occ, Taxes, S_r, Br, Br_plus, Tot_park_spcs, A_c, Gar_type, Park_desig, Heating, Constr1_out, Locker, Addr, Park_fac, Level1, Level2, Level3, Level4, Level5, Level6, Level7, Level8, Level9, Level10, Level11, Level12, Rm1_out, Rm1_len, Rm1_wth, Rm1_dc1_out, Rm1_dc2_out, Rm1_dc3_out, Rm2_out, Rm2_len, Rm2_wth, Rm2_dc1_out, Rm2_dc2_out, Rm2_dc3_out, Rm3_out, Rm3_len, Rm3_wth, Rm3_dc1_out, Rm3_dc2_out, Rm3_dc3_out, Rm4_out, Rm4_len, Rm4_wth, Rm4_dc1_out, Rm4_dc2_out, Rm4_dc3_out, Rm5_out, Rm5_len, Rm5_wth, Rm5_dc1_out, Rm5_dc2_out, Rm5_dc3_out, Rm6_out, Rm6_len, Rm6_wth, Rm6_dc1_out, Rm6_dc2_out, Rm6_dc3_out, Rm7_out, Rm7_len, Rm7_wth, Rm7_dc1_out, Rm7_dc2_out, Rm7_dc3_out, Rm8_out, Rm8_len, Rm8_wth, Rm8_dc1_out, Rm8_dc2_out, Rm8_dc3_out, Rm9_out, Rm9_len, Rm9_wth, Rm9_dc1_out, Rm9_dc2_out, Rm9_dc3_out, Rm10_out, Rm10_len, Rm10_wth, Rm10_dc1_out, Rm10_dc2_out, Rm10_dc3_out, Rm11_out, Rm11_len, Rm11_wth, Rm11_dc1_out, Rm11_dc2_out, Rm11_dc3_out, Rm12_out, Rm12_len, Rm12_wth, Rm12_dc1_out, Rm12_dc2_out, Rm12_dc3_out, Rltr, Lp_dol, Timestamp_sql, Tour_url, Bldg_amen1_out, Bldg_amen2_out, Bldg_amen3_out, Bldg_amen4_out, Bldg_amen5_out, Bldg_amen6_out FROM {0} WHERE Ml_num = %s;".format(
+        query = "SELECT Type_own1_out, Style, Bath_tot, Locker_num, Maint, Water_inc, Park_spcs, Fpl_num, Fuel, Cross_st, Pets, Occ, Taxes, S_r, Br, Br_plus, Tot_park_spcs, A_c, Gar_type, Park_desig, Heating, Constr1_out, Locker, Addr, Park_fac, Level1, Level2, Level3, Level4, Level5, Level6, Level7, Level8, Level9, Level10, Level11, Level12, Rm1_out, Rm1_len, Rm1_wth, Rm1_dc1_out, Rm1_dc2_out, Rm1_dc3_out, Rm2_out, Rm2_len, Rm2_wth, Rm2_dc1_out, Rm2_dc2_out, Rm2_dc3_out, Rm3_out, Rm3_len, Rm3_wth, Rm3_dc1_out, Rm3_dc2_out, Rm3_dc3_out, Rm4_out, Rm4_len, Rm4_wth, Rm4_dc1_out, Rm4_dc2_out, Rm4_dc3_out, Rm5_out, Rm5_len, Rm5_wth, Rm5_dc1_out, Rm5_dc2_out, Rm5_dc3_out, Rm6_out, Rm6_len, Rm6_wth, Rm6_dc1_out, Rm6_dc2_out, Rm6_dc3_out, Rm7_out, Rm7_len, Rm7_wth, Rm7_dc1_out, Rm7_dc2_out, Rm7_dc3_out, Rm8_out, Rm8_len, Rm8_wth, Rm8_dc1_out, Rm8_dc2_out, Rm8_dc3_out, Rm9_out, Rm9_len, Rm9_wth, Rm9_dc1_out, Rm9_dc2_out, Rm9_dc3_out, Rm10_out, Rm10_len, Rm10_wth, Rm10_dc1_out, Rm10_dc2_out, Rm10_dc3_out, Rm11_out, Rm11_len, Rm11_wth, Rm11_dc1_out, Rm11_dc2_out, Rm11_dc3_out, Rm12_out, Rm12_len, Rm12_wth, Rm12_dc1_out, Rm12_dc2_out, Rm12_dc3_out, Rltr, Lp_dol, Timestamp_sql, Tour_url, Bldg_amen1_out, Bldg_amen2_out, Bldg_amen3_out, Bldg_amen4_out, Bldg_amen5_out, Bldg_amen6_out FROM {0} WHERE Ml_num = %s AND Status='A';".format(
+            residence_type
+        )
+    elif residence_type == "commercial":
+        query = "SELECT Prop_type, Front_ft, Depth, Gar_type, Heating, Freestandg, S_r, Taxes, Water, Bus_type, Cross_st, Rltr, Lp_dol, Timestamp_sql, Addr, Community FROM {0} WHERE Ml_num = %s AND Status='A';".format(
             residence_type
         )
     cursor.execute(query, (mls_num,))
@@ -606,11 +724,29 @@ def listing_details():
             "price": result[110],
             "date": result[111],
             "tour_url": result[112],
-            "building_amenities": ("" if str(result[113]) == None else str(result[113]))
-            + ("" if str(result[114]) == None else ", " + str(result[114]))
-            + ("" if str(result[115]) == None else ", " + str(result[115]))
-            + ("" if str(result[116]) == None else ", " + str(result[116]))
-            + ("" if str(result[117]) == None else ", " + str(result[117])),
+            "building_amenities": ("" if result[113] == None else str(result[113]))
+            + ("" if result[114] == None else ", " + str(result[114]))
+            + ("" if result[115] == None else ", " + str(result[115]))
+            + ("" if result[116] == None else ", " + str(result[116]))
+            + ("" if result[117] == None else ", " + str(result[117])),
+        }
+    elif residence_type == "commercial":
+        obj = {
+            "property_type": result[0],
+            "land_size": str(result[1]) + " x " + str(result[2]) + " FT",
+            "garage_type": result[3],
+            "heating_type": result[4],
+            "freestanding": result[5],
+            "sale_lease": result[6],
+            "property_tax": result[7],
+            "water": result[8],
+            "use": result[9],
+            "cross_street": result[10],
+            "realtor": result[11],
+            "price": result[12],
+            "date": result[13],
+            "address": result[14],
+            "community": result[15],
         }
     response = jsonify(obj)
     return response
