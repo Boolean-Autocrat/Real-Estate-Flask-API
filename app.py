@@ -5,6 +5,7 @@ import mysql.connector
 import math
 from flask_cors import CORS
 from functools import wraps
+import logging
 
 load_dotenv()
 
@@ -22,6 +23,10 @@ connection = mysql.connector.connect(
 cursor = connection.cursor()
 app = Flask(__name__)
 CORS(app)
+
+gunicorn_error_logger = logging.getLogger("gunicorn.error")
+app.logger.handlers.extend(gunicorn_error_logger.handlers)
+app.logger.setLevel(logging.ERROR)
 
 
 def require_api_key(func):
@@ -77,7 +82,7 @@ def listing_all():
             residence_type
         )
     elif residence_type == "commercial":
-        query = "SELECT Addr, Municipality, Ad_text, Zip, Oa_area, Lp_dol, Extras, S_r, Ml_num, Timestamp_sql, Rltr FROM {0} WHERE Status='A'".format(
+        query = "SELECT Addr, Municipality, Ad_text, Zip, Tot_area, Lp_dol, Extras, S_r, Ml_num, Timestamp_sql, Rltr FROM {0} WHERE Status='A'".format(
             residence_type
         )
     params = []
@@ -111,7 +116,7 @@ def listing_all():
         query += " AND Sqft >= %s"
         params.append(sqft)
     if sqft and residence_type == "commercial":
-        query += " AND Oa_area >= %s"
+        query += " AND Tot_area >= %s"
         params.append(sqft)
     if prop_type:
         query += " AND Type_own1_out = %s"
@@ -120,8 +125,9 @@ def listing_all():
         query += " AND Style = %s"
         params.append(style)
     if mls_number:
-        query += " AND Ml_num = %s"
-        params.append(mls_number)
+        if mls_number[-1] != ",":
+            mls_number += ","
+        query += f" AND Ml_num IN {tuple(mls_number.split(','))}"
     if limit:
         offset = (page - 1) * limit  # Calculate the offset based on the page number
         query += " ORDER BY Timestamp_sql DESC LIMIT %s OFFSET %s"  # Add LIMIT and OFFSET clauses to the query
@@ -218,7 +224,7 @@ def listing_similar():
             residence_type
         )
     elif residence_type == "commercial":
-        query = "SELECT Addr, Municipality, Ad_text, Zip, Oa_area, Lp_dol, Extras, S_r, Ml_num, Timestamp_sql, Rltr FROM {0} WHERE Status='A'".format(
+        query = "SELECT Addr, Municipality, Ad_text, Zip, Tot_area, Lp_dol, Extras, S_r, Ml_num, Timestamp_sql, Rltr FROM {0} WHERE Status='A'".format(
             residence_type
         )
     conditions = []
@@ -386,25 +392,16 @@ def listing_count():
 @require_api_key
 def autocomplete_address():
     query = request.args.get("query")
+    residence_type = request.args.get("residence_type")
     params = []
-    params.extend(["%{0}%".format(query)] * 12)
-    sql_query = (
-        "SELECT Addr, Zip, Municipality "
-        "FROM ("
-        "   SELECT Addr, Zip, Municipality FROM residential "
-        "   WHERE (Addr LIKE %s OR Zip LIKE %s OR Municipality LIKE %s OR Ml_num LIKE %s) AND Status='A' "
-        "   UNION ALL "
-        "   SELECT Addr, Zip, Municipality FROM commercial "
-        "   WHERE (Addr LIKE %s OR Zip LIKE %s OR Municipality LIKE %s OR Ml_num LIKE %s) AND Status='A' "
-        "   UNION ALL "
-        "   SELECT Addr, Zip, Municipality FROM condo "
-        "   WHERE (Addr LIKE %s OR Zip LIKE %s OR Municipality LIKE %s OR Ml_num LIKE %s) AND Status='A' "
-        ") AS subquery "
-        "LIMIT 10"
-    )
+    params.extend(["%{0}%".format(query)] * 4)
+    sql_query = f"SELECT Addr, Zip, Municipality FROM {residence_type}"
+    sql_query += " WHERE (Addr LIKE %s OR Zip LIKE %s OR Municipality LIKE %s OR Ml_num LIKE %s) AND Status = 'A' LIMIT 10;"
     cursor.execute("SET workload='olap'")
     cursor.execute(sql_query, params)
     result = cursor.fetchall()
+    if len(result) == 0:
+        return jsonify([])
 
     addresses = [
         (
