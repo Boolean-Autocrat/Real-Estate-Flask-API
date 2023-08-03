@@ -6,6 +6,7 @@ import math
 from flask_cors import CORS
 from functools import wraps
 import logging
+import re
 
 load_dotenv()
 
@@ -27,6 +28,12 @@ CORS(app)
 gunicorn_error_logger = logging.getLogger("gunicorn.error")
 app.logger.handlers.extend(gunicorn_error_logger.handlers)
 app.logger.setLevel(logging.ERROR)
+
+
+def slugify_char(input_string):
+    pattern = r"[^\w-]"
+    cleaned_string = re.sub(pattern, "", input_string)
+    return cleaned_string
 
 
 def require_api_key(func):
@@ -78,11 +85,11 @@ def listing_all():
     # Construct the SQL query with filters
     cursor.execute("SET workload='olap'")
     if residence_type == "residential" or residence_type == "condo":
-        query = "SELECT Addr, Municipality, Ad_text, Zip, Sqft, Lp_dol, Br, Bath_tot, Extras, S_r, Ml_num, Timestamp_sql, Rltr FROM {0} WHERE Status='A'".format(
+        query = "SELECT Addr, Municipality, Ad_text, Zip, Sqft, Lp_dol, Br, Bath_tot, Extras, S_r, Ml_num, Timestamp_sql, Rltr, Latitude, Longitude FROM {0} WHERE Status='A'".format(
             residence_type
         )
     elif residence_type == "commercial":
-        query = "SELECT Addr, Municipality, Ad_text, Zip, Tot_area, Lp_dol, Extras, S_r, Ml_num, Timestamp_sql, Rltr FROM {0} WHERE Status='A'".format(
+        query = "SELECT Addr, Municipality, Ad_text, Zip, Tot_area, Lp_dol, Extras, S_r, Ml_num, Timestamp_sql, Rltr, Latitude, Longitude FROM {0} WHERE Status='A'".format(
             residence_type
         )
     params = []
@@ -150,9 +157,9 @@ def listing_all():
                 "extras": data[8],
                 "sale/lease": data[9],
                 "mls_number": data[10],
-                "slug": data[0].replace(" ", "-").lower()
+                "slug": slugify_char(data[0].replace(" ", "-").lower())
                 + "-"
-                + data[1].replace(" ", "-").lower()
+                + slugify_char(data[1].replace(" ", "-").lower())
                 + "-"
                 + data[10].replace(" ", "-")
                 if data[0] and data[1]
@@ -170,6 +177,8 @@ def listing_all():
                 else "",
                 "timestamp": data[11],
                 "realtor": data[12],
+                "latitude": data[13],
+                "longitude": data[14],
             }
             obj.append(obj_app)
     elif residence_type == "commercial":
@@ -184,9 +193,9 @@ def listing_all():
                 "extras": data[6],
                 "sale/lease": data[7],
                 "mls_number": data[8],
-                "slug": data[0].replace(" ", "-").lower()
+                "slug": slugify_char(data[0].replace(" ", "-").lower())
                 + "-"
-                + data[1].replace(" ", "-").lower()
+                + slugify_char(data[1].replace(" ", "-").lower())
                 + "-"
                 + data[8].replace(" ", "-")
                 if data[0] and data[1]
@@ -204,6 +213,8 @@ def listing_all():
                 else "",
                 "timestamp": data[9],
                 "realtor": data[10],
+                "latitude": data[11],
+                "longitude": data[12],
             }
             obj.append(obj_app)
     response = jsonify(obj)
@@ -248,6 +259,8 @@ def listing_similar():
     params.extend([postal_code, limit])
     cursor.execute(query, params)
     result = cursor.fetchall()
+    if result is None:
+        return jsonify([])
 
     obj = []
     if residence_type == "residential" or residence_type == "condo":
@@ -264,9 +277,9 @@ def listing_similar():
                 "extras": data[8],
                 "sale/lease": data[9],
                 "mls_number": data[10],
-                "slug": data[0].replace(" ", "-").lower()
+                "slug": slugify_char(data[0].replace(" ", "-").lower())
                 + "-"
-                + data[1].replace(" ", "-").lower()
+                + slugify_char(data[1].replace(" ", "-").lower())
                 + "-"
                 + data[10].replace(" ", "-")
                 if data[0] and data[1]
@@ -298,9 +311,9 @@ def listing_similar():
                 "extras": data[6],
                 "sale/lease": data[7],
                 "mls_number": data[8],
-                "slug": data[0].replace(" ", "-").lower()
+                "slug": slugify_char(data[0].replace(" ", "-").lower())
                 + "-"
-                + data[1].replace(" ", "-").lower()
+                + slugify_char(data[1].replace(" ", "-").lower())
                 + "-"
                 + data[8].replace(" ", "-")
                 if data[0] and data[1]
@@ -393,12 +406,11 @@ def listing_count():
 def autocomplete_address():
     query = request.args.get("query")
     residence_type = request.args.get("residence_type")
-    params = []
-    params.extend(["%{0}%".format(query)] * 4)
-    sql_query = f"SELECT Addr, Zip, Municipality FROM {residence_type}"
-    sql_query += " WHERE (Addr LIKE %s OR Zip LIKE %s OR Municipality LIKE %s OR Ml_num LIKE %s) AND Status = 'A' LIMIT 10;"
+    sql_query = "SELECT Addr, Zip, Municipality FROM {} WHERE MATCH(Addr, Zip, Municipality, Ml_num) AGAINST(%s) AND Status = 'A' LIMIT 10;".format(
+        residence_type
+    )
     cursor.execute("SET workload='olap'")
-    cursor.execute(sql_query, params)
+    cursor.execute(sql_query, (query,))
     result = cursor.fetchall()
     if len(result) == 0:
         return jsonify([])
