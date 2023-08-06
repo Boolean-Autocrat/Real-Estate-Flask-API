@@ -120,10 +120,10 @@ def listing_all():
         query += " AND Lp_dol >= %s"
         params.append(float(any_price))
     if sqft and (residence_type == "residential" or residence_type == "condo"):
-        query += " AND Sqft >= %s"
+        query += " AND Sqft <= %s"
         params.append(sqft)
     if sqft and residence_type == "commercial":
-        query += " AND Tot_area >= %s"
+        query += " AND Tot_area <= %s"
         params.append(sqft)
     if prop_type:
         query += " AND Type_own1_out = %s"
@@ -228,6 +228,7 @@ def listing_similar():
     city = request.args.get("city")
     residence_type = request.args.get("residence_type")
     mls_number = request.args.get("mls")
+    sale_type = request.args.get("sale_type")
     # Construct the SQL query with filters
     cursor.execute("SET workload='olap'")
     if residence_type == "residential" or residence_type == "condo":
@@ -240,6 +241,11 @@ def listing_similar():
         )
     conditions = []
     params = []
+
+    if sale_type:
+        query += " AND S_r = %s"
+        params.append(sale_type)
+
     if mls_number:
         params.append(mls_number)
 
@@ -381,8 +387,11 @@ def listing_count():
     if any_price:
         count_query += " AND Lp_dol >= %s"
         params.append(float(any_price))
-    if sqft:
+    if sqft and (residence_type == "residential" or residence_type == "condo"):
         count_query += " AND Sqft <= %s"
+        params.append(sqft)
+    if sqft and residence_type == "commercial":
+        count_query += " AND Tot_area <= %s"
         params.append(sqft)
     if prop_type:
         count_query += " AND Type_own1_out = %s"
