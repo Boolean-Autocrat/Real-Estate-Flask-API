@@ -421,7 +421,7 @@ def autocomplete_address():
     cursor.execute("SET workload='olap'")
     cursor.execute(sql_query, (query,))
     result = cursor.fetchall()
-    if len(result) == 0:
+    if len(result) == 0 or result is None:
         return jsonify([])
 
     addresses = [
